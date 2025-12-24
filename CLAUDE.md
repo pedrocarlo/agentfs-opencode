@@ -76,6 +76,8 @@ bun run build        # Build the plugin
 bun run typecheck    # Run TypeScript type checking
 bun run lint         # Run Biome linter
 bun run lint:fix     # Run Biome linter with auto-fix
+bun run check        # Run lint, typecheck, and tests (all checks)
+bun run link         # Build, link globally, and link in .opencode folder
 ```
 
 ## Development Guidelines
