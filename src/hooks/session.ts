@@ -1,7 +1,10 @@
+import { platform } from "node:os"
 import type { Event, OpencodeClient } from "@opencode-ai/sdk"
 import { closeSession, createSession, getSession } from "../agentfs/client"
 import { mountOverlay, unmountOverlay } from "../agentfs/mount"
 import type { AgentFSConfig } from "../config/schema"
+
+const IS_LINUX = platform() === "linux"
 
 function showError(client: OpencodeClient, title: string, message: string) {
 	client.tui.showToast({
@@ -14,7 +17,11 @@ function showError(client: OpencodeClient, title: string, message: string) {
 	})
 }
 
-export function createSessionHandler(config: AgentFSConfig, projectPath: string, client: OpencodeClient) {
+export function createSessionHandler(
+	config: AgentFSConfig,
+	projectPath: string,
+	client: OpencodeClient,
+) {
 	return async (input: { event: Event }) => {
 		const { event } = input
 
@@ -27,8 +34,8 @@ export function createSessionHandler(config: AgentFSConfig, projectPath: string,
 				// Create AgentFS session
 				const context = await createSession(config, sessionId, projectPath)
 
-				// Auto-mount if configured
-				if (config.autoMount) {
+				// Auto-mount if configured (Linux only)
+				if (config.autoMount && IS_LINUX) {
 					try {
 						await mountOverlay(context.mount, projectPath)
 					} catch (err) {
@@ -58,8 +65,8 @@ export function createSessionHandler(config: AgentFSConfig, projectPath: string,
 			if (!context) return
 
 			try {
-				// Unmount if mounted
-				if (context.mount.mounted) {
+				// Unmount if mounted (Linux only)
+				if (context.mount.mounted && IS_LINUX) {
 					await unmountOverlay(context.mount)
 				}
 
