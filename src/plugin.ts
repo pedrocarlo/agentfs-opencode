@@ -1,56 +1,48 @@
-import type { Plugin, Hooks } from "@opencode-ai/plugin";
-import { parseConfig } from "./config/schema";
+import type { Hooks, Plugin } from "@opencode-ai/plugin"
+import { parseConfig } from "./config/schema"
 import {
-  kvGet,
-  kvSet,
-  kvDelete,
-  kvList,
-  sandboxStatus,
-  sandboxDiff,
-  sandboxApply,
-} from "./tools";
-import {
-  createSessionHandler,
-  createToolExecuteBeforeHandler,
-  createToolExecuteAfterHandler,
-} from "./hooks";
+	createSessionHandler,
+	createToolExecuteAfterHandler,
+	createToolExecuteBeforeHandler,
+} from "./hooks"
+import { kvDelete, kvGet, kvList, kvSet, sandboxApply, sandboxDiff, sandboxStatus } from "./tools"
 
 export const AgentFSPlugin: Plugin = async (input) => {
-  const { project, directory } = input;
+	const { project, directory } = input
 
-  // Parse configuration from project config
-  // @ts-expect-error - agentfs config may not be typed in project
-  const rawConfig = project?.config?.agentfs;
-  const config = parseConfig(rawConfig);
+	// Parse configuration from project config
+	// @ts-expect-error - agentfs config may not be typed in project
+	const rawConfig = project?.config?.agentfs
+	const config = parseConfig(rawConfig)
 
-  // Create hook handlers
-  const sessionHandler = createSessionHandler(config, directory);
-  const toolExecuteBefore = createToolExecuteBeforeHandler(config);
-  const toolExecuteAfter = createToolExecuteAfterHandler(config);
+	// Create hook handlers
+	const sessionHandler = createSessionHandler(config, directory)
+	const toolExecuteBefore = createToolExecuteBeforeHandler(config)
+	const toolExecuteAfter = createToolExecuteAfterHandler(config)
 
-  const hooks: Hooks = {
-    // Event handler for session lifecycle
-    event: sessionHandler,
+	const hooks: Hooks = {
+		// Event handler for session lifecycle
+		event: sessionHandler,
 
-    // Tool tracking hooks
-    "tool.execute.before": toolExecuteBefore,
-    "tool.execute.after": toolExecuteAfter,
+		// Tool tracking hooks
+		"tool.execute.before": toolExecuteBefore,
+		"tool.execute.after": toolExecuteAfter,
 
-    // Custom tools
-    tool: {
-      kv_get: kvGet,
-      kv_set: kvSet,
-      kv_delete: kvDelete,
-      kv_list: kvList,
-      sandbox_status: sandboxStatus,
-      sandbox_diff: sandboxDiff,
-      sandbox_apply: sandboxApply,
-    },
-  };
+		// Custom tools
+		tool: {
+			kv_get: kvGet,
+			kv_set: kvSet,
+			kv_delete: kvDelete,
+			kv_list: kvList,
+			sandbox_status: sandboxStatus,
+			sandbox_diff: sandboxDiff,
+			sandbox_apply: sandboxApply,
+		},
+	}
 
-  console.log("[agentfs] Plugin loaded for project:", directory);
+	console.log("[agentfs] Plugin loaded for project:", directory)
 
-  return hooks;
-};
+	return hooks
+}
 
-export default AgentFSPlugin;
+export default AgentFSPlugin

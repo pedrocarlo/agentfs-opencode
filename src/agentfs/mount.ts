@@ -1,130 +1,119 @@
-import { spawn, type Subprocess } from "bun";
-import { access, constants } from "node:fs/promises";
-import type { MountInfo } from "./types";
+import { access, constants } from "node:fs/promises"
+import { type Subprocess, spawn } from "bun"
+import type { MountInfo } from "./types"
 
-const mountProcesses = new Map<string, Subprocess>();
+const mountProcesses = new Map<string, Subprocess>()
 
 async function isAgentFSInstalled(): Promise<boolean> {
-  try {
-    const proc = spawn(["which", "agentfs"], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const exitCode = await proc.exited;
-    return exitCode === 0;
-  } catch {
-    return false;
-  }
+	try {
+		const proc = spawn(["which", "agentfs"], {
+			stdout: "pipe",
+			stderr: "pipe",
+		})
+		const exitCode = await proc.exited
+		return exitCode === 0
+	} catch {
+		return false
+	}
 }
 
-export async function mountOverlay(
-  mount: MountInfo,
-  projectPath: string
-): Promise<void> {
-  if (mount.mounted) {
-    return;
-  }
+export async function mountOverlay(mount: MountInfo, projectPath: string): Promise<void> {
+	if (mount.mounted) {
+		return
+	}
 
-  const installed = await isAgentFSInstalled();
-  if (!installed) {
-    throw new Error(
-      "AgentFS CLI not found. Install with: cargo install agentfs-cli"
-    );
-  }
+	const installed = await isAgentFSInstalled()
+	if (!installed) {
+		throw new Error("AgentFS CLI not found. Install with: cargo install agentfs-cli")
+	}
 
-  // Initialize AgentFS with project as base
-  const initProc = spawn(
-    ["agentfs", "init", mount.sessionId, "--base", projectPath],
-    {
-      stdout: "pipe",
-      stderr: "pipe",
-      cwd: mount.dbPath.replace(`/${mount.sessionId}.db`, ""),
-    }
-  );
+	// Initialize AgentFS with project as base
+	const initProc = spawn(["agentfs", "init", mount.sessionId, "--base", projectPath], {
+		stdout: "pipe",
+		stderr: "pipe",
+		cwd: mount.dbPath.replace(`/${mount.sessionId}.db`, ""),
+	})
 
-  const initExitCode = await initProc.exited;
-  if (initExitCode !== 0) {
-    const stderr = await new Response(initProc.stderr).text();
-    // Ignore "already exists" errors
-    if (!stderr.includes("already exists")) {
-      throw new Error(`Failed to initialize AgentFS: ${stderr}`);
-    }
-  }
+	const initExitCode = await initProc.exited
+	if (initExitCode !== 0) {
+		const stderr = await new Response(initProc.stderr).text()
+		// Ignore "already exists" errors
+		if (!stderr.includes("already exists")) {
+			throw new Error(`Failed to initialize AgentFS: ${stderr}`)
+		}
+	}
 
-  // Mount the overlay
-  const mountProc = spawn(
-    ["agentfs", "mount", mount.sessionId, mount.mountPath],
-    {
-      stdout: "pipe",
-      stderr: "pipe",
-      cwd: mount.dbPath.replace(`/${mount.sessionId}.db`, ""),
-    }
-  );
+	// Mount the overlay
+	const mountProc = spawn(["agentfs", "mount", mount.sessionId, mount.mountPath], {
+		stdout: "pipe",
+		stderr: "pipe",
+		cwd: mount.dbPath.replace(`/${mount.sessionId}.db`, ""),
+	})
 
-  mountProcesses.set(mount.sessionId, mountProc);
+	mountProcesses.set(mount.sessionId, mountProc)
 
-  // Wait a bit for mount to be ready
-  await Bun.sleep(500);
+	// Wait a bit for mount to be ready
+	await Bun.sleep(500)
 
-  // Verify mount is accessible
-  try {
-    await access(mount.mountPath, constants.R_OK);
-    mount.mounted = true;
-    mount.pid = mountProc.pid;
-  } catch {
-    throw new Error(`Mount point not accessible: ${mount.mountPath}`);
-  }
+	// Verify mount is accessible
+	try {
+		await access(mount.mountPath, constants.R_OK)
+		mount.mounted = true
+		mount.pid = mountProc.pid
+	} catch {
+		throw new Error(`Mount point not accessible: ${mount.mountPath}`)
+	}
 }
 
 export async function unmountOverlay(mount: MountInfo): Promise<void> {
-  if (!mount.mounted) {
-    return;
-  }
+	if (!mount.mounted) {
+		return
+	}
 
-  const proc = mountProcesses.get(mount.sessionId);
-  if (proc) {
-    proc.kill();
-    mountProcesses.delete(mount.sessionId);
-  }
+	const proc = mountProcesses.get(mount.sessionId)
+	if (proc) {
+		proc.kill()
+		mountProcesses.delete(mount.sessionId)
+	}
 
-  // Try fusermount -u first (Linux), then umount (macOS)
-  try {
-    const unmountProc = spawn(["fusermount", "-u", mount.mountPath], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    await unmountProc.exited;
-  } catch {
-    // Try macOS umount
-    try {
-      const unmountProc = spawn(["umount", mount.mountPath], {
-        stdout: "pipe",
-        stderr: "pipe",
-      });
-      await unmountProc.exited;
-    } catch {
-      // Ignore unmount errors
-    }
-  }
+	// Try fusermount -u first (Linux), then umount (macOS)
+	try {
+		const unmountProc = spawn(["fusermount", "-u", mount.mountPath], {
+			stdout: "pipe",
+			stderr: "pipe",
+		})
+		await unmountProc.exited
+	} catch {
+		// Try macOS umount
+		try {
+			const unmountProc = spawn(["umount", mount.mountPath], {
+				stdout: "pipe",
+				stderr: "pipe",
+			})
+			await unmountProc.exited
+		} catch {
+			// Ignore unmount errors
+		}
+	}
 
-  mount.mounted = false;
-  mount.pid = undefined;
+	mount.mounted = false
+	mount.pid = undefined
 }
 
 export function isMounted(mount: MountInfo): boolean {
-  return mount.mounted;
+	return mount.mounted
 }
 
 export async function getMountStatus(mount: MountInfo): Promise<{
-  mounted: boolean;
-  mountPath: string;
-  projectPath: string;
-  pid?: number;
+	mounted: boolean
+	mountPath: string
+	projectPath: string
+	pid?: number
 }> {
-  return {
-    mounted: mount.mounted,
-    mountPath: mount.mountPath,
-    projectPath: mount.projectPath,
-    pid: mount.pid,
-  };
+	return {
+		mounted: mount.mounted,
+		mountPath: mount.mountPath,
+		projectPath: mount.projectPath,
+		pid: mount.pid,
+	}
 }
