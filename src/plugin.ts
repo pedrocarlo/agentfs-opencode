@@ -27,8 +27,10 @@ export const AgentFSPlugin: Plugin = async (input) => {
 
 	// Create hook handlers
 	const sessionHandler = createSessionHandler(config, directory, client)
-	const toolExecuteBefore = createToolExecuteBeforeHandler(config)
-	const toolExecuteAfter = createToolExecuteAfterHandler(config)
+	// Cast client to include log method (SDK types may not be up to date)
+	const loggingClient = client as unknown as Parameters<typeof createToolExecuteBeforeHandler>[1]
+	const toolExecuteBefore = createToolExecuteBeforeHandler(config, loggingClient)
+	const toolExecuteAfter = createToolExecuteAfterHandler(config, loggingClient)
 
 	const hooks: Hooks = {
 		// Event handler for session lifecycle

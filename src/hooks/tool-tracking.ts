@@ -1,6 +1,20 @@
 import { getSession } from "../agentfs/client"
 import type { AgentFSConfig } from "../config/schema"
 
+// Client type with app.log method (matches OpenCode SDK structure)
+type LoggingClient = {
+	app: {
+		log: (options: {
+			body: {
+				service: string
+				level: "debug" | "info" | "warn" | "error"
+				message: string
+				extra?: Record<string, unknown>
+			}
+		}) => void
+	}
+}
+
 // Store start times and the promise for the pending record ID
 const toolCallStarts = new Map<
 	string,
@@ -23,7 +37,16 @@ function shouldTrackTool(config: AgentFSConfig, toolName: string): boolean {
 	return config.toolTracking.trackAll
 }
 
-export function createToolExecuteBeforeHandler(config: AgentFSConfig) {
+function log(
+	client: LoggingClient | undefined,
+	level: "debug" | "info" | "warn" | "error",
+	message: string,
+	extra?: Record<string, unknown>,
+) {
+	client?.app.log({ body: { service: "agentfs", level, message: `[agentfs] ${message}`, extra } })
+}
+
+export function createToolExecuteBeforeHandler(config: AgentFSConfig, client?: LoggingClient) {
 	return async (
 		input: { tool: string; sessionID: string; callID: string },
 		output: { args: unknown },
@@ -35,23 +58,33 @@ export function createToolExecuteBeforeHandler(config: AgentFSConfig) {
 		const key = makeCallKey(input.sessionID, input.callID)
 		const startTime = Date.now()
 
+		log(client, "debug", `BEFORE tool=${input.tool} key=${key}`, {
+			sessionID: input.sessionID,
+			callID: input.callID,
+		})
+
 		// Start creating the pending record, but don't await it here
 		// Store the promise so the after handler can await it
 		const session = getSession(input.sessionID)
 		let pendingIdPromise: Promise<number> | undefined
 
+		log(client, "debug", `BEFORE session found: ${!!session}`)
+
 		if (session) {
 			pendingIdPromise = session.agent.tools.start(input.tool, output.args).catch((err) => {
-				console.error(`[agentfs] Failed to create pending tool call:`, err)
+				log(client, "error", `Failed to create pending tool call: ${err}`)
 				return -1 // Return invalid ID on error
 			})
 		}
 
 		toolCallStarts.set(key, { startTime, args: output.args, pendingIdPromise })
+		log(client, "debug", `BEFORE stored key=${key} hasPendingPromise=${!!pendingIdPromise}`, {
+			mapSize: toolCallStarts.size,
+		})
 	}
 }
 
-export function createToolExecuteAfterHandler(config: AgentFSConfig) {
+export function createToolExecuteAfterHandler(config: AgentFSConfig, client?: LoggingClient) {
 	return async (
 		input: { tool: string; sessionID: string; callID: string },
 		output: { title: string; output: string; metadata: unknown },
@@ -61,17 +94,35 @@ export function createToolExecuteAfterHandler(config: AgentFSConfig) {
 		}
 
 		const key = makeCallKey(input.sessionID, input.callID)
+		const mapKeys = Array.from(toolCallStarts.keys())
+		log(client, "debug", `AFTER tool=${input.tool} key=${key}`, {
+			sessionID: input.sessionID,
+			callID: input.callID,
+			mapKeys,
+		})
+
 		const startData = toolCallStarts.get(key)
+		log(
+			client,
+			"debug",
+			`AFTER startData found: ${!!startData} hasPendingPromise=${!!startData?.pendingIdPromise}`,
+		)
 
 		// Clean up stored value
 		toolCallStarts.delete(key)
 
 		if (!startData) {
+			log(client, "warn", `AFTER no startData for key=${key}, returning early`)
 			return
 		}
 
 		const session = getSession(input.sessionID)
 		if (!session) {
+			log(
+				client,
+				"warn",
+				`AFTER no session found for sessionID=${input.sessionID}, returning early`,
+			)
 			return
 		}
 
@@ -82,12 +133,15 @@ export function createToolExecuteAfterHandler(config: AgentFSConfig) {
 			// Wait for the pending record to be created, then update it
 			if (startData.pendingIdPromise) {
 				const pendingId = await startData.pendingIdPromise
+				log(client, "debug", `AFTER pendingId=${pendingId}`)
 
 				if (pendingId > 0) {
 					// Update the pending record to success/error
 					if (isError) {
+						log(client, "debug", `AFTER updating to error`)
 						await session.agent.tools.error(pendingId, output.output)
 					} else {
+						log(client, "debug", `AFTER updating to success`)
 						await session.agent.tools.success(pendingId, {
 							title: output.title,
 							output: output.output.slice(0, 10000), // Limit size
@@ -99,6 +153,7 @@ export function createToolExecuteAfterHandler(config: AgentFSConfig) {
 			}
 
 			// Fallback: if pending record creation failed, record the complete call
+			log(client, "debug", `AFTER using fallback record()`)
 			await session.agent.tools.record(
 				input.tool,
 				startData.startTime / 1000,
@@ -114,7 +169,7 @@ export function createToolExecuteAfterHandler(config: AgentFSConfig) {
 				isError ? output.output : undefined,
 			)
 		} catch (err) {
-			console.error(`[agentfs] Failed to record tool call:`, err)
+			log(client, "error", `Failed to record tool call: ${err}`)
 		}
 	}
 }
