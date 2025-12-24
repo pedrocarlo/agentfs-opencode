@@ -4,23 +4,56 @@
   "workspaces": {
     "": {
       "name": "agentfs-opencode",
+      "dependencies": {
+        "@opencode-ai/plugin": "^1.0.195",
+        "agentfs-sdk": "^0.3.1",
+        "zod": "^4.2.1",
+      },
       "devDependencies": {
         "@types/bun": "latest",
       },
       "peerDependencies": {
-        "typescript": "^5",
+        "typescript": "^5.9.3",
       },
     },
   },
   "packages": {
+    "@opencode-ai/plugin": ["@opencode-ai/plugin@1.0.195", "", { "dependencies": { "@opencode-ai/sdk": "1.0.195", "zod": "4.1.8" } }, "sha512-AQ/WRD8owOxtIkrXur5dmo3XRUWQxdmuxed1Ahd+ZTepxSL5/KZdoJS3RlR/AuwwzWrQQOxzg+O5wd+mPfldrQ=="],
+
+    "@opencode-ai/sdk": ["@opencode-ai/sdk@1.0.195", "", {}, "sha512-1LUPQfdu8eTttZSlTFiQuDT+fD88hmU3czI0ybXscMHVPwCiMaYrMHmQPaRsJfeGtzwWQY9MHWiUkPVZBawOOQ=="],
+
+    "@tursodatabase/database": ["@tursodatabase/database@0.4.0-pre.18", "", { "dependencies": { "@tursodatabase/database-common": "^0.4.0-pre.18" }, "optionalDependencies": { "@tursodatabase/database-darwin-arm64": "0.4.0-pre.18", "@tursodatabase/database-linux-arm64-gnu": "0.4.0-pre.18", "@tursodatabase/database-linux-x64-gnu": "0.4.0-pre.18", "@tursodatabase/database-win32-x64-msvc": "0.4.0-pre.18" } }, "sha512-NWmI4AJBK8HjRr5FIzafuNVRue60HKYPmrH6t4gYbGOGNg3sLpsMI/kxvyzdexcyFWZfKZNIhuLJZOgJdN32pQ=="],
+
+    "@tursodatabase/database-common": ["@tursodatabase/database-common@0.4.0-pre.18", "", {}, "sha512-TLrdyC0sGjOgrMW0QgEXVFdMhiB8mQC6lRDJY1ks+i3ykZt+OR6yBAoNzb9AD9k4yMuFVFYgP8u8rdEZvSYr1Q=="],
+
+    "@tursodatabase/database-darwin-arm64": ["@tursodatabase/database-darwin-arm64@0.4.0-pre.18", "", { "os": "darwin", "cpu": "arm64" }, "sha512-McbAv7lRak3bVbDDUCS0QvqmcXPgGGOP6hnGp9k77DjFiH1XNA0lCJ81dY9iMPvOk27ZDx9tQgu0ppW2VrNpBA=="],
+
+    "@tursodatabase/database-linux-arm64-gnu": ["@tursodatabase/database-linux-arm64-gnu@0.4.0-pre.18", "", { "os": "linux", "cpu": "arm64" }, "sha512-dzWwksodFf0fvUY04s7Td8JKqAISqAf4irHa50esTTkq3RhirAwkvycbPrYL3o8KqSnZbxmk3H9sAY6aIA1Ajw=="],
+
+    "@tursodatabase/database-linux-x64-gnu": ["@tursodatabase/database-linux-x64-gnu@0.4.0-pre.18", "", { "os": "linux", "cpu": "x64" }, "sha512-V3QfdsX5iXYD2ceSAme4vPJkmWxmFJMRz7BTjl+5X6gvJcLzWCskTFWC/f/xyzsBOnkKXtfSFf4vxrHS2AwNzA=="],
+
+    "@tursodatabase/database-win32-x64-msvc": ["@tursodatabase/database-win32-x64-msvc@0.4.0-pre.18", "", { "os": "win32", "cpu": "x64" }, "sha512-pRB4N2NMQnqjAJJR1WWhbFDms7EpiS3I8mw5HlKGsc2vhthe5K3guKIWGcoxaK0og5D4cqW0bHf5rPLsWqO2dQ=="],
+
     "@types/bun": ["@types/bun@1.3.5", "", { "dependencies": { "bun-types": "1.3.5" } }, "sha512-RnygCqNrd3srIPEWBd5LFeUYG7plCoH2Yw9WaZGyNmdTEei+gWaHqydbaIRkIkcbXwhBT94q78QljxN0Sk838w=="],
 
     "@types/node": ["@types/node@25.0.3", "", { "dependencies": { "undici-types": "~7.16.0" } }, "sha512-W609buLVRVmeW693xKfzHeIV6nJGGz98uCPfeXI1ELMLXVeKYZ9m15fAMSaUPBHYLGFsVRcMmSCksQOrZV9BYA=="],
 
+    "agentfs-sdk": ["agentfs-sdk@0.3.1", "", { "dependencies": { "@tursodatabase/database": "^0.4.0-pre.17", "@tursodatabase/database-common": "^0.4.0-pre.17", "buffer": "^6.0.3" } }, "sha512-l/2WA7m4WHqXr2AWD+ae3N7g2ffneLHSRLOK2NfOMQTSLubXRMog0LhdyqqYyC4WTPG8s1v4pc1OA8/MYilUhw=="],
+
+    "base64-js": ["base64-js@1.5.1", "", {}, "sha512-AKpaYlHn8t4SVbOHCy+b5+KKgvR4vrsD8vbvrbiQJps7fKDTkjkDry6ji0rUJjC0kzbNePLwzxq8iypo41qeWA=="],
+
+    "buffer": ["buffer@6.0.3", "", { "dependencies": { "base64-js": "^1.3.1", "ieee754": "^1.2.1" } }, "sha512-FTiCpNxtwiZZHEZbcbTIcZjERVICn9yq/pDFkTl95/AxzD1naBctN7YO68riM/gLSDY7sdrMby8hofADYuuqOA=="],
+
     "bun-types": ["bun-types@1.3.5", "", { "dependencies": { "@types/node": "*" } }, "sha512-inmAYe2PFLs0SUbFOWSVD24sg1jFlMPxOjOSSCYqUgn4Hsc3rDc7dFvfVYjFPNHtov6kgUeulV4SxbuIV/stPw=="],
+
+    "ieee754": ["ieee754@1.2.1", "", {}, "sha512-dcyqhDvX1C46lXZcVqCpK+FtMRQVdIMN6/Df5js2zouUsqG7I6sFxitIC+7KYK29KdXOLHdu9zL4sFnoVQnqaA=="],
 
     "typescript": ["typescript@5.9.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw=="],
 
     "undici-types": ["undici-types@7.16.0", "", {}, "sha512-Zz+aZWSj8LE6zoxD+xrjh4VfkIG8Ya6LvYkZqtUQGJPZjYl53ypCaUwWqo7eI0x66KBGeRo+mlBEkMSeSZ38Nw=="],
+
+    "zod": ["zod@4.2.1", "", {}, "sha512-0wZ1IRqGGhMP76gLqz8EyfBXKk0J2qo2+H3fi4mcUP/KtTocoX08nmIAHl1Z2kJIZbZee8KOpBCSNPRgauucjw=="],
+
+    "@opencode-ai/plugin/zod": ["zod@4.1.8", "", {}, "sha512-5R1P+WwQqmmMIEACyzSvo4JXHY5WiAFHRMg+zBZKgKS+Q1viRa0C1hmUKtHltoIFKtIdki3pRxkmpP74jnNYHQ=="],
   }
 }
