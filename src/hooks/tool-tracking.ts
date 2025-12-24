@@ -56,6 +56,13 @@ export function createToolExecuteBeforeHandler(config: AgentFSConfig, client?: L
 		}
 
 		const key = makeCallKey(input.sessionID, input.callID)
+
+		// Prevent duplicate pending records for the same callID
+		if (toolCallStarts.has(key)) {
+			log(client, "debug", `BEFORE skipping duplicate key=${key}`)
+			return
+		}
+
 		const startTime = Date.now()
 
 		log(client, "debug", `BEFORE tool=${input.tool} key=${key}`, {
@@ -127,8 +134,16 @@ export function createToolExecuteAfterHandler(config: AgentFSConfig, client?: Lo
 		}
 
 		try {
-			// Check if output indicates an error
-			const isError = output.output.includes("error") || output.output.includes("Error")
+			// Check if output indicates an error by parsing JSON and checking for error field
+			const isError = (() => {
+				try {
+					const parsed = JSON.parse(output.output)
+					return typeof parsed.error === "string" && parsed.error.length > 0
+				} catch {
+					// If not JSON, fall back to checking for common error patterns
+					return output.output.startsWith("Error:") || output.output.startsWith("error:")
+				}
+			})()
 
 			// Wait for the pending record to be created, then update it
 			if (startData.pendingIdPromise) {

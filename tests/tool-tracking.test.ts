@@ -504,5 +504,49 @@ describe("Tool Tracking", () => {
 			expect(toolStats?.successful).toBe(3)
 			expect(toolStats?.failed).toBe(0)
 		})
+
+		test("prevents duplicate pending records for same callID", async () => {
+			await createSession(config, sessionId, testDir)
+			const session = getSession(sessionId)!
+
+			const beforeHandler = createToolExecuteBeforeHandler(config)
+			const afterHandler = createToolExecuteAfterHandler(config)
+
+			const callID = "duplicate-call-1"
+
+			// Call before handler twice with same callID (simulate retry/duplicate)
+			await beforeHandler(
+				{ tool: "dup_test_tool", sessionID: sessionId, callID },
+				{ args: { attempt: 1 } },
+			)
+			await Bun.sleep(50)
+
+			await beforeHandler(
+				{ tool: "dup_test_tool", sessionID: sessionId, callID },
+				{ args: { attempt: 2 } },
+			)
+			await Bun.sleep(50)
+
+			// Should only have 1 pending record (second call was skipped)
+			const db = session.agent.getDatabase()
+			const countStmt = db.prepare("SELECT COUNT(*) as count FROM tool_calls WHERE name = ?")
+			const countResult = await countStmt.get("dup_test_tool")
+			expect(countResult.count).toBe(1)
+
+			// Complete the call
+			await afterHandler(
+				{ tool: "dup_test_tool", sessionID: sessionId, callID },
+				{ title: "Dup Test", output: "success", metadata: {} },
+			)
+
+			// Still only 1 record
+			const finalCount = await countStmt.get("dup_test_tool")
+			expect(finalCount.count).toBe(1)
+
+			// And it should be successful
+			const recordStmt = db.prepare("SELECT * FROM tool_calls WHERE name = ?")
+			const record = await recordStmt.get("dup_test_tool")
+			expect(record.status).toBe("success")
+		})
 	})
 })
