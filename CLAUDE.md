@@ -51,7 +51,9 @@ src/
 │   ├── kv-list.ts              # List keys in KV store
 │   ├── sandbox-status.ts       # Show modified/created/deleted files
 │   ├── sandbox-diff.ts         # Diff sandbox vs base project
-│   └── sandbox-apply.ts        # Apply changes to real filesystem
+│   ├── sandbox-apply.ts        # Apply changes to real filesystem
+│   ├── tools-list.ts           # List recent tracked tool calls
+│   └── tools-stats.ts          # Get tool call statistics
 ├── hooks/
 │   ├── index.ts                # Hook exports
 │   ├── session.ts              # Mount/unmount on session lifecycle
@@ -60,7 +62,9 @@ src/
     └── schema.ts               # Zod configuration schema
 tests/
 ├── config.test.ts              # Config schema tests
-└── client.test.ts              # AgentFS client tests
+├── client.test.ts              # AgentFS client tests
+├── tool-tracking.test.ts       # Tool tracking hook tests
+└── tools-list.test.ts          # tools_list and tools_stats tests
 ```
 
 ## Commands
@@ -70,7 +74,16 @@ bun install          # Install dependencies
 bun test             # Run all tests
 bun run build        # Build the plugin
 bun run typecheck    # Run TypeScript type checking
+bun run lint         # Run Biome linter
+bun run lint:fix     # Run Biome linter with auto-fix
 ```
+
+## Development Guidelines
+
+- **Always add tests** when creating new features or fixing bugs. Tests go in the `tests/` directory.
+- **Run checks before committing**: Always run `bun test`, `bun run typecheck`, and `bun run lint` before considering work complete.
+- **Fix linter errors**: Use `bun run lint:fix` to auto-fix formatting issues.
+- **Test naming**: Use descriptive test names that explain what is being tested (e.g., "creates pending record that gets updated to success").
 
 ## Key Files
 
