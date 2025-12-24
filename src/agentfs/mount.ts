@@ -28,10 +28,11 @@ export async function mountOverlay(mount: MountInfo, projectPath: string): Promi
 	}
 
 	// Initialize AgentFS with project as base
+	// Run from project root so the CLI creates .agentfs/ in the right place
 	const initProc = spawn(["agentfs", "init", mount.sessionId, "--base", projectPath], {
 		stdout: "pipe",
 		stderr: "pipe",
-		cwd: mount.dbPath.replace(`/${mount.sessionId}.db`, ""),
+		cwd: projectPath,
 	})
 
 	const initExitCode = await initProc.exited
@@ -44,10 +45,11 @@ export async function mountOverlay(mount: MountInfo, projectPath: string): Promi
 	}
 
 	// Mount the overlay
+	// Run from project root to find the .agentfs/ database
 	const mountProc = spawn(["agentfs", "mount", mount.sessionId, mount.mountPath], {
 		stdout: "pipe",
 		stderr: "pipe",
-		cwd: mount.dbPath.replace(`/${mount.sessionId}.db`, ""),
+		cwd: projectPath,
 	})
 
 	mountProcesses.set(mount.sessionId, mountProc)
