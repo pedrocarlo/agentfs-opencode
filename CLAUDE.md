@@ -1,8 +1,155 @@
 ---
-description: Use Bun instead of Node.js, npm, pnpm, or vite.
+description: AgentFS OpenCode Plugin - Transparent sandboxing via FUSE mount
 globs: "*.ts, *.tsx, *.html, *.css, *.js, *.jsx, package.json"
-alwaysApply: false
+alwaysApply: true
 ---
+
+# AgentFS OpenCode Plugin
+
+OpenCode plugin integrating AgentFS for transparent sandboxing, persistent storage, and tool call tracking.
+
+## Project Overview
+
+This plugin provides:
+- **Transparent Sandboxing** - Automatically mounts AgentFS overlay on session start; OpenCode's existing Read/Edit/Bash tools operate on sandboxed filesystem
+- **Persistent Storage** - Cross-session memory via KV store
+- **Tool Call Tracking** - Records all OpenCode tool invocations for analysis
+- **Concurrent Sessions** - Multiple sessions can work on the same project; base project NEVER modified
+
+## Architecture
+
+```
+BASE PROJECT (untouched, read-only for overlays):
+  /path/to/project/  →  [original files, always accessible]
+
+SESSION A:                              SESSION B:
+~/.agentfs/mounts/{session-a}/         ~/.agentfs/mounts/{session-b}/
+┌─────────────────────────────┐        ┌─────────────────────────────┐
+│  Delta Layer (session-a.db) │        │  Delta Layer (session-b.db) │
+├─────────────────────────────┤        ├─────────────────────────────┤
+│  Base: /path/to/project/    │        │  Base: /path/to/project/    │
+└─────────────────────────────┘        └─────────────────────────────┘
+```
+
+Changes stay in each session's delta DB until explicitly applied via `sandbox_apply` tool.
+
+## Directory Structure
+
+```
+src/
+├── index.ts                    # Plugin exports
+├── plugin.ts                   # Main plugin definition (registers hooks/tools)
+├── agentfs/
+│   ├── client.ts               # AgentFS SDK wrapper (session lifecycle)
+│   ├── mount.ts                # FUSE mount/unmount logic
+│   └── types.ts                # TypeScript interfaces
+├── tools/
+│   ├── index.ts                # Tool exports
+│   ├── kv-get.ts               # Get value from KV store
+│   ├── kv-set.ts               # Set value in KV store
+│   ├── kv-delete.ts            # Delete value from KV store
+│   ├── kv-list.ts              # List keys in KV store
+│   ├── sandbox-status.ts       # Show modified/created/deleted files
+│   ├── sandbox-diff.ts         # Diff sandbox vs base project
+│   └── sandbox-apply.ts        # Apply changes to real filesystem
+├── hooks/
+│   ├── index.ts                # Hook exports
+│   ├── session.ts              # Mount/unmount on session lifecycle
+│   └── tool-tracking.ts        # Tool execution tracking
+└── config/
+    └── schema.ts               # Zod configuration schema
+tests/
+├── config.test.ts              # Config schema tests
+└── client.test.ts              # AgentFS client tests
+```
+
+## Commands
+
+```bash
+bun install          # Install dependencies
+bun test             # Run all tests
+bun run build        # Build the plugin
+bun run typecheck    # Run TypeScript type checking
+```
+
+## Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/plugin.ts` | Main entry point - exports `AgentFSPlugin` that registers all hooks and tools |
+| `src/agentfs/client.ts` | Session management: `createSession()`, `getSession()`, `closeSession()` |
+| `src/agentfs/mount.ts` | FUSE operations: `mountOverlay()`, `unmountOverlay()`, `getMountStatus()` |
+| `src/config/schema.ts` | Zod schema for plugin configuration with defaults |
+| `src/hooks/session.ts` | Handles `session.created` and `session.deleted` events |
+
+## Plugin Configuration
+
+```json
+{
+  "agentfs": {
+    "dbPath": ".agentfs/",
+    "mountPath": "~/.agentfs/mounts/",
+    "autoMount": true,
+    "toolTracking": {
+      "enabled": true,
+      "trackAll": true,
+      "excludeTools": []
+    }
+  }
+}
+```
+
+## Code Patterns
+
+### Creating Tools
+```typescript
+import { tool } from "@opencode-ai/plugin"
+
+export const myTool = tool({
+  description: "Tool description",
+  args: {
+    param: tool.schema.string().describe("Parameter description"),
+  },
+  async execute(args, context) {
+    const session = getSession(context.sessionID)
+    // ... implementation
+    return JSON.stringify({ result: "value" })
+  },
+})
+```
+
+### Accessing Session in Tools
+```typescript
+const session = getSession(context.sessionID)
+if (!session) {
+  return JSON.stringify({ error: "Session not found" })
+}
+// Access AgentFS APIs:
+// session.agent.kv - KV store
+// session.agent.getDatabase() - SQLite database
+// session.mount - Mount information
+```
+
+### Hook Event Properties
+Session ID is accessed via `event.properties.info.id` (not `event.properties.sessionID`).
+
+### Database Queries
+Use prepared statements pattern:
+```typescript
+const db = session.agent.getDatabase()
+const stmt = db.prepare("SELECT * FROM table WHERE col = ?")
+const results = stmt.all(param)
+```
+
+## Dependencies
+
+- `@opencode-ai/plugin` - OpenCode plugin SDK
+- `agentfs-sdk` - AgentFS filesystem SDK
+- `zod` - Schema validation
+
+---
+
+# Bun Runtime
 
 Default to using Bun instead of Node.js.
 
