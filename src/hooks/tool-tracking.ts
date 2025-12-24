@@ -1,8 +1,11 @@
 import { getSession } from "../agentfs/client"
 import type { AgentFSConfig } from "../config/schema"
 
-// Store start times for in-flight tool calls
-const toolCallStarts = new Map<string, number>()
+// Store start times and the promise for the pending record ID
+const toolCallStarts = new Map<
+	string,
+	{ startTime: number; args: unknown; pendingIdPromise?: Promise<number> }
+>()
 
 function makeCallKey(sessionId: string, callId: string): string {
 	return `${sessionId}:${callId}`
@@ -30,19 +33,21 @@ export function createToolExecuteBeforeHandler(config: AgentFSConfig) {
 		}
 
 		const key = makeCallKey(input.sessionID, input.callID)
-		toolCallStarts.set(key, Date.now())
+		const startTime = Date.now()
 
-		// Also start tracking in AgentFS
+		// Start creating the pending record, but don't await it here
+		// Store the promise so the after handler can await it
 		const session = getSession(input.sessionID)
+		let pendingIdPromise: Promise<number> | undefined
+
 		if (session) {
-			try {
-				const id = await session.agent.tools.start(input.tool, output.args)
-				// Store the AgentFS tool call ID for later
-				toolCallStarts.set(`${key}:id`, id)
-			} catch (err) {
-				console.error(`[agentfs] Failed to record tool start:`, err)
-			}
+			pendingIdPromise = session.agent.tools.start(input.tool, output.args).catch((err) => {
+				console.error(`[agentfs] Failed to create pending tool call:`, err)
+				return -1 // Return invalid ID on error
+			})
 		}
+
+		toolCallStarts.set(key, { startTime, args: output.args, pendingIdPromise })
 	}
 }
 
@@ -56,12 +61,14 @@ export function createToolExecuteAfterHandler(config: AgentFSConfig) {
 		}
 
 		const key = makeCallKey(input.sessionID, input.callID)
-		const startTime = toolCallStarts.get(key)
-		const agentFsId = toolCallStarts.get(`${key}:id`) as number | undefined
+		const startData = toolCallStarts.get(key)
 
-		// Clean up stored values
+		// Clean up stored value
 		toolCallStarts.delete(key)
-		toolCallStarts.delete(`${key}:id`)
+
+		if (!startData) {
+			return
+		}
 
 		const session = getSession(input.sessionID)
 		if (!session) {
@@ -69,35 +76,45 @@ export function createToolExecuteAfterHandler(config: AgentFSConfig) {
 		}
 
 		try {
-			// If we have an AgentFS tool call ID, update it
-			if (agentFsId !== undefined) {
-				// Check if output indicates an error
-				const isError = output.output.includes("error") || output.output.includes("Error")
+			// Check if output indicates an error
+			const isError = output.output.includes("error") || output.output.includes("Error")
 
-				if (isError) {
-					await session.agent.tools.error(agentFsId, output.output)
-				} else {
-					await session.agent.tools.success(agentFsId, {
-						title: output.title,
-						output: output.output.slice(0, 10000), // Limit size
-						metadata: output.metadata,
-					})
+			// Wait for the pending record to be created, then update it
+			if (startData.pendingIdPromise) {
+				const pendingId = await startData.pendingIdPromise
+
+				if (pendingId > 0) {
+					// Update the pending record to success/error
+					if (isError) {
+						await session.agent.tools.error(pendingId, output.output)
+					} else {
+						await session.agent.tools.success(pendingId, {
+							title: output.title,
+							output: output.output.slice(0, 10000), // Limit size
+							metadata: output.metadata,
+						})
+					}
+					return
 				}
-			} else if (startTime) {
-				// Fallback: record the complete call
-				await session.agent.tools.record(
-					input.tool,
-					startTime / 1000,
-					Date.now() / 1000,
-					undefined,
-					{
-						title: output.title,
-						output: output.output.slice(0, 10000),
-					},
-				)
 			}
+
+			// Fallback: if pending record creation failed, record the complete call
+			await session.agent.tools.record(
+				input.tool,
+				startData.startTime / 1000,
+				Date.now() / 1000,
+				startData.args,
+				isError
+					? undefined
+					: {
+							title: output.title,
+							output: output.output.slice(0, 10000),
+							metadata: output.metadata,
+						},
+				isError ? output.output : undefined,
+			)
 		} catch (err) {
-			console.error(`[agentfs] Failed to record tool completion:`, err)
+			console.error(`[agentfs] Failed to record tool call:`, err)
 		}
 	}
 }
