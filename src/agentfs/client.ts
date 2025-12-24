@@ -7,6 +7,39 @@ import type { MountInfo, SessionContext } from "./types"
 
 const sessions = new Map<string, SessionContext>()
 
+const MAX_RETRIES = 5
+const INITIAL_DELAY_MS = 100
+const BUSY_TIMEOUT_MS = 5000
+
+async function withRetry<T>(
+	fn: () => Promise<T>,
+	isRetryable: (error: unknown) => boolean,
+	maxRetries = MAX_RETRIES,
+): Promise<T> {
+	let lastError: unknown
+	for (let attempt = 0; attempt < maxRetries; attempt++) {
+		try {
+			return await fn()
+		} catch (error) {
+			lastError = error
+			if (!isRetryable(error) || attempt === maxRetries - 1) {
+				throw error
+			}
+			const delay = INITIAL_DELAY_MS * 2 ** attempt
+			await Bun.sleep(delay)
+		}
+	}
+	throw lastError
+}
+
+function isDatabaseBusy(error: unknown): boolean {
+	if (error instanceof Error) {
+		const message = error.message.toLowerCase()
+		return message.includes("database is busy") || message.includes("database is locked")
+	}
+	return false
+}
+
 function expandPath(path: string): string {
 	if (path.startsWith("~/")) {
 		return join(homedir(), path.slice(2))
@@ -41,11 +74,12 @@ export async function createSession(
 	await mkdir(dirname(dbPath), { recursive: true })
 	await mkdir(mountPath, { recursive: true })
 
-	// Open AgentFS instance
-	const agent = await AgentFS.open({
-		id: sessionId,
-		path: dbPath,
-	})
+	// Open AgentFS instance with retry for database busy errors
+	const agent = await withRetry(() => AgentFS.open({ id: sessionId, path: dbPath }), isDatabaseBusy)
+
+	// Set busy_timeout to wait for locks instead of failing immediately
+	const db = agent.getDatabase()
+	await db.pragma(`busy_timeout = ${BUSY_TIMEOUT_MS}`, {})
 
 	const mount: MountInfo = {
 		sessionId,

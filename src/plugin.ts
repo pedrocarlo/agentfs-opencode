@@ -8,7 +8,7 @@ import {
 import { kvDelete, kvGet, kvList, kvSet, sandboxApply, sandboxDiff, sandboxStatus } from "./tools"
 
 export const AgentFSPlugin: Plugin = async (input) => {
-	const { project, directory } = input
+	const { project, directory, client } = input
 
 	// Parse configuration from project config
 	// @ts-expect-error - agentfs config may not be typed in project
@@ -16,7 +16,7 @@ export const AgentFSPlugin: Plugin = async (input) => {
 	const config = parseConfig(rawConfig)
 
 	// Create hook handlers
-	const sessionHandler = createSessionHandler(config, directory)
+	const sessionHandler = createSessionHandler(config, directory, client)
 	const toolExecuteBefore = createToolExecuteBeforeHandler(config)
 	const toolExecuteAfter = createToolExecuteAfterHandler(config)
 
@@ -40,7 +40,7 @@ export const AgentFSPlugin: Plugin = async (input) => {
 		},
 	}
 
-	console.log("[agentfs] Plugin loaded for project:", directory)
+	console.log(`[agentfs] Plugin loaded for project: ${directory}`)
 
 	return hooks
 }

@@ -7,6 +7,7 @@ export interface MountInfo {
 	dbPath: string
 	mounted: boolean
 	pid?: number
+	error?: string
 }
 
 export interface SessionContext {

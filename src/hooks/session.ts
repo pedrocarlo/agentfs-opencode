@@ -1,9 +1,20 @@
-import type { Event } from "@opencode-ai/sdk"
+import type { Event, OpencodeClient } from "@opencode-ai/sdk"
 import { closeSession, createSession, getSession } from "../agentfs/client"
 import { mountOverlay, unmountOverlay } from "../agentfs/mount"
 import type { AgentFSConfig } from "../config/schema"
 
-export function createSessionHandler(config: AgentFSConfig, projectPath: string) {
+function showError(client: OpencodeClient, title: string, message: string) {
+	client.tui.showToast({
+		body: {
+			title,
+			message,
+			variant: "error",
+			duration: 5000,
+		},
+	})
+}
+
+export function createSessionHandler(config: AgentFSConfig, projectPath: string, client: OpencodeClient) {
 	return async (input: { event: Event }) => {
 		const { event } = input
 
@@ -20,9 +31,12 @@ export function createSessionHandler(config: AgentFSConfig, projectPath: string)
 				if (config.autoMount) {
 					try {
 						await mountOverlay(context.mount, projectPath)
-						console.log(`[agentfs] Mounted sandbox at ${context.mount.mountPath}`)
 					} catch (err) {
-						console.error(`[agentfs] Failed to mount sandbox:`, err)
+						const errorMessage = err instanceof Error ? err.message : String(err)
+						context.mount.error = errorMessage
+						showError(client, "AgentFS Mount Failed", errorMessage)
+						// Store the error in KV for tools to access
+						await context.agent.kv.set("session:mountError", errorMessage)
 					}
 				}
 
@@ -30,7 +44,8 @@ export function createSessionHandler(config: AgentFSConfig, projectPath: string)
 				await context.agent.kv.set("session:startedAt", Date.now())
 				await context.agent.kv.set("session:projectPath", projectPath)
 			} catch (err) {
-				console.error(`[agentfs] Failed to create session:`, err)
+				const errorMessage = err instanceof Error ? err.message : String(err)
+				showError(client, "AgentFS Session Failed", errorMessage)
 			}
 		}
 
@@ -46,7 +61,6 @@ export function createSessionHandler(config: AgentFSConfig, projectPath: string)
 				// Unmount if mounted
 				if (context.mount.mounted) {
 					await unmountOverlay(context.mount)
-					console.log(`[agentfs] Unmounted sandbox for session ${sessionId}`)
 				}
 
 				// Store session end time before closing
@@ -55,7 +69,8 @@ export function createSessionHandler(config: AgentFSConfig, projectPath: string)
 				// Close the session
 				await closeSession(sessionId)
 			} catch (err) {
-				console.error(`[agentfs] Failed to cleanup session:`, err)
+				const errorMessage = err instanceof Error ? err.message : String(err)
+				showError(client, "AgentFS Cleanup Failed", errorMessage)
 			}
 		}
 	}

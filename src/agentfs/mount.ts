@@ -55,14 +55,49 @@ export async function mountOverlay(mount: MountInfo, projectPath: string): Promi
 	// Wait a bit for mount to be ready
 	await Bun.sleep(500)
 
-	// Verify mount is accessible
-	try {
-		await access(mount.mountPath, constants.R_OK)
-		mount.mounted = true
-		mount.pid = mountProc.pid
-	} catch {
-		throw new Error(`Mount point not accessible: ${mount.mountPath}`)
+	// Verify mount is accessible and FUSE process is running
+	const mountError = await verifyMount(mount.mountPath, mountProc)
+	if (mountError) {
+		mount.error = mountError
+		throw new Error(mountError)
 	}
+
+	mount.mounted = true
+	mount.pid = mountProc.pid
+	mount.error = undefined
+}
+
+async function verifyMount(mountPath: string, proc: Subprocess): Promise<string | undefined> {
+	// Check if process exited prematurely
+	if (proc.exitCode !== null) {
+		let stderrText = ""
+		if (proc.stderr && typeof proc.stderr !== "number") {
+			stderrText = await new Response(proc.stderr).text()
+		}
+		return `Mount process exited with code ${proc.exitCode}: ${stderrText.trim() || "unknown error"}`
+	}
+
+	// Check if mount point is accessible
+	try {
+		await access(mountPath, constants.R_OK)
+	} catch {
+		return `Mount point not accessible: ${mountPath}`
+	}
+
+	// Verify it's actually a FUSE mount by checking /proc/mounts (Linux) or mount command (macOS)
+	try {
+		const checkProc = spawn(["mount"], { stdout: "pipe", stderr: "pipe" })
+		const stdout = await new Response(checkProc.stdout).text()
+		await checkProc.exited
+
+		if (!stdout.includes(mountPath)) {
+			return `Mount point exists but is not a FUSE mount: ${mountPath}`
+		}
+	} catch {
+		// If mount check fails, rely on access check above
+	}
+
+	return undefined
 }
 
 export async function unmountOverlay(mount: MountInfo): Promise<void> {
