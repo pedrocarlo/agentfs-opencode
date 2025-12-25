@@ -18,7 +18,7 @@ export function buildInitCommand(sessionId: string, basePath: string): string[] 
  * Exported for testing.
  */
 export function buildMountCommand(sessionId: string, mountPath: string): string[] {
-	return ["agentfs", "mount", sessionId, mountPath]
+	return ["agentfs", "mount", sessionId, mountPath, "--auto-unmount"]
 }
 
 export async function isAgentFSInstalled(): Promise<boolean> {
