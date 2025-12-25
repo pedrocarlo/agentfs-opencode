@@ -1,19 +1,6 @@
 import { getSession } from "../agentfs/client"
 import type { AgentFSConfig } from "../config/schema"
-
-// Client type with app.log method (matches OpenCode SDK structure)
-type LoggingClient = {
-	app: {
-		log: (options: {
-			body: {
-				service: string
-				level: "debug" | "info" | "warn" | "error"
-				message: string
-				extra?: Record<string, unknown>
-			}
-		}) => void
-	}
-}
+import { type LoggingClient, log } from "../log"
 
 // Store start times and the promise for the pending record ID
 const toolCallStarts = new Map<
@@ -35,15 +22,6 @@ function shouldTrackTool(config: AgentFSConfig, toolName: string): boolean {
 	}
 
 	return config.toolTracking.trackAll
-}
-
-export function log(
-	client: LoggingClient | undefined,
-	level: "debug" | "info" | "warn" | "error",
-	message: string,
-	extra?: Record<string, unknown>,
-) {
-	client?.app.log({ body: { service: "agentfs", level, message: `[agentfs] ${message}`, extra } })
 }
 
 export function createToolExecuteBeforeHandler(config: AgentFSConfig, client?: LoggingClient) {

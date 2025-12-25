@@ -5,6 +5,7 @@ import {
 	createToolExecuteAfterHandler,
 	createToolExecuteBeforeHandler,
 } from "./hooks"
+import { log } from "./log"
 import {
 	kvDelete,
 	kvGet,
@@ -20,15 +21,26 @@ import {
 export const AgentFSPlugin: Plugin = async (input) => {
 	const { project, directory, client } = input
 
+	// Cast client to include log method (SDK types may not be up to date)
+	const loggingClient = client as unknown as Parameters<typeof createToolExecuteBeforeHandler>[1]
+
+	log(loggingClient, "info", `Plugin initializing for project: ${directory}`)
+
 	// Parse configuration from project config
 	// @ts-expect-error - agentfs config may not be typed in project
 	const rawConfig = project?.config?.agentfs
 	const config = parseConfig(rawConfig)
 
+	log(loggingClient, "debug", `Configuration parsed`, {
+		autoMount: config.autoMount,
+		toolTracking: config.toolTracking.enabled,
+		trackAll: config.toolTracking.trackAll,
+		excludeTools: config.toolTracking.excludeTools,
+	})
+
 	// Create hook handlers
+	log(loggingClient, "debug", `Creating hook handlers`)
 	const sessionHandler = createSessionHandler(config, directory, client)
-	// Cast client to include log method (SDK types may not be up to date)
-	const loggingClient = client as unknown as Parameters<typeof createToolExecuteBeforeHandler>[1]
 	const toolExecuteBefore = createToolExecuteBeforeHandler(config, loggingClient)
 	const toolExecuteAfter = createToolExecuteAfterHandler(config, loggingClient)
 
@@ -54,7 +66,9 @@ export const AgentFSPlugin: Plugin = async (input) => {
 		},
 	}
 
-	console.log(`[agentfs] Plugin loaded for project: ${directory}`)
+	log(loggingClient, "info", `Plugin loaded successfully`, {
+		toolsRegistered: Object.keys(hooks.tool || {}).length,
+	})
 
 	return hooks
 }
