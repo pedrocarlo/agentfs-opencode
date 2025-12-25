@@ -13,6 +13,10 @@ import { type LoggingClient, log } from "../log"
 
 const IS_LINUX = platform() === "linux"
 
+// Track sessions currently being initialized to prevent duplicate concurrent attempts
+// This is needed because the plugin may be loaded multiple times and receive duplicate events
+const initializingSessions = new Set<string>()
+
 function showError(client: OpencodeClient, title: string, message: string) {
 	client.tui.showToast({
 		body: {
@@ -39,6 +43,15 @@ export function createSessionHandler(
 		if (event.type === "session.created") {
 			const sessionId = event.properties.info.id
 			if (!sessionId) return
+
+			// Check if this session is already being initialized (duplicate event)
+			if (initializingSessions.has(sessionId) || getSession(sessionId)) {
+				log(loggingClient, "debug", `Skipping duplicate session.created event for ${sessionId}`)
+				return
+			}
+
+			// Mark session as initializing to prevent concurrent attempts
+			initializingSessions.add(sessionId)
 
 			log(loggingClient, "info", `Session created: ${sessionId}`, { projectPath })
 
@@ -94,6 +107,9 @@ export function createSessionHandler(
 				const errorMessage = err instanceof Error ? err.message : String(err)
 				log(loggingClient, "error", `AgentFS Session Failed: ${errorMessage}`)
 				showError(client, "AgentFS Session Failed", errorMessage)
+			} finally {
+				// Always remove from initializing set when done
+				initializingSessions.delete(sessionId)
 			}
 		}
 
