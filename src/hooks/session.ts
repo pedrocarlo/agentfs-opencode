@@ -1,6 +1,12 @@
 import { platform } from "node:os"
 import type { Event, OpencodeClient } from "@opencode-ai/sdk"
-import { closeSession, createSession, getSession } from "../agentfs/client"
+import {
+	closeDatabase,
+	closeSession,
+	createSession,
+	getSession,
+	reopenDatabase,
+} from "../agentfs/client"
 import { mountOverlay, unmountOverlay } from "../agentfs/mount"
 import type { AgentFSConfig } from "../config/schema"
 
@@ -37,8 +43,15 @@ export function createSessionHandler(
 				// Auto-mount if configured (Linux only)
 				if (config.autoMount && IS_LINUX) {
 					try {
+						// Close the database before mounting to avoid file lock errors
+						// The agentfs CLI needs exclusive access to the database
+						await closeDatabase(sessionId)
 						await mountOverlay(context.mount, projectPath)
+						// Reopen the database after mount completes
+						await reopenDatabase(sessionId)
 					} catch (err) {
+						// Ensure database is reopened even if mount fails
+						await reopenDatabase(sessionId)
 						const errorMessage = err instanceof Error ? err.message : String(err)
 						context.mount.error = errorMessage
 						showError(client, "AgentFS Mount Failed", errorMessage)

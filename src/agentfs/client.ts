@@ -114,6 +114,43 @@ export async function closeSession(sessionId: string): Promise<void> {
 	sessions.delete(sessionId)
 }
 
+/**
+ * Temporarily close the database to allow CLI operations (like mount) that need exclusive access.
+ * Call reopenDatabase() after the CLI operation completes.
+ */
+export async function closeDatabase(sessionId: string): Promise<void> {
+	const context = sessions.get(sessionId)
+	if (!context) {
+		return
+	}
+
+	await context.agent.close()
+}
+
+/**
+ * Reopen the database after a CLI operation that required exclusive access.
+ * Must be called after closeDatabase().
+ */
+export async function reopenDatabase(sessionId: string): Promise<void> {
+	const context = sessions.get(sessionId)
+	if (!context) {
+		return
+	}
+
+	// Reopen AgentFS instance with retry for database busy errors
+	const agent = await withRetry(
+		() => AgentFS.open({ id: sessionId, path: context.mount.dbPath }),
+		isDatabaseBusy,
+	)
+
+	// Set busy_timeout to wait for locks instead of failing immediately
+	const db = agent.getDatabase()
+	await db.pragma(`busy_timeout = ${BUSY_TIMEOUT_MS}`, {})
+
+	// Update the context with the new agent instance
+	context.agent = agent
+}
+
 export function getAllSessions(): SessionContext[] {
 	return Array.from(sessions.values())
 }
