@@ -37,7 +37,7 @@ function shouldTrackTool(config: AgentFSConfig, toolName: string): boolean {
 	return config.toolTracking.trackAll
 }
 
-function log(
+export function log(
 	client: LoggingClient | undefined,
 	level: "debug" | "info" | "warn" | "error",
 	message: string,

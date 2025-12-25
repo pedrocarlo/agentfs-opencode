@@ -9,6 +9,7 @@ import {
 } from "../agentfs/client"
 import { mountOverlay, unmountOverlay } from "../agentfs/mount"
 import type { AgentFSConfig } from "../config/schema"
+import { log } from "./tool-tracking"
 
 const IS_LINUX = platform() === "linux"
 
@@ -49,6 +50,7 @@ export function createSessionHandler(
 					} catch (err) {
 						const errorMessage = err instanceof Error ? err.message : String(err)
 						context.mount.error = errorMessage
+						log(client, "error", `AgentFS Mount Failed: ${errorMessage}`)
 						showError(client, "AgentFS Mount Failed", errorMessage)
 					}
 				}
@@ -66,6 +68,7 @@ export function createSessionHandler(
 				}
 			} catch (err) {
 				const errorMessage = err instanceof Error ? err.message : String(err)
+				log(client, "error", `AgentFS Session Failed: ${errorMessage}`)
 				showError(client, "AgentFS Session Failed", errorMessage)
 			}
 		}
@@ -97,6 +100,7 @@ export function createSessionHandler(
 				await closeSession(sessionId)
 			} catch (err) {
 				const errorMessage = err instanceof Error ? err.message : String(err)
+				log(client, "error", `AgentFS Cleanup Failed: ${errorMessage}`)
 				showError(client, "AgentFS Cleanup Failed", errorMessage)
 			}
 		}
