@@ -57,7 +57,11 @@ export function getMountPath(config: AgentFSConfig, sessionId: string): string {
 	return join(mountDir, sessionId)
 }
 
-export async function createSession(
+/**
+ * Create a session context without opening the database.
+ * This should be called first, then mount the overlay, then call openDatabase().
+ */
+export async function createSessionContext(
 	config: AgentFSConfig,
 	sessionId: string,
 	projectPath: string,
@@ -74,13 +78,6 @@ export async function createSession(
 	await mkdir(dirname(dbPath), { recursive: true })
 	await mkdir(mountPath, { recursive: true })
 
-	// Open AgentFS instance with retry for database busy errors
-	const agent = await withRetry(() => AgentFS.open({ id: sessionId, path: dbPath }), isDatabaseBusy)
-
-	// Set busy_timeout to wait for locks instead of failing immediately
-	const db = agent.getDatabase()
-	await db.pragma(`busy_timeout = ${BUSY_TIMEOUT_MS}`, {})
-
 	const mount: MountInfo = {
 		sessionId,
 		projectPath,
@@ -92,52 +89,30 @@ export async function createSession(
 	const context: SessionContext = {
 		sessionId,
 		projectPath,
-		agent,
 		mount,
+		// agent is not set yet - will be set by openDatabase()
 	}
 
 	sessions.set(sessionId, context)
 	return context
 }
 
-export function getSession(sessionId: string): SessionContext | undefined {
-	return sessions.get(sessionId)
-}
-
-export async function closeSession(sessionId: string): Promise<void> {
-	const context = sessions.get(sessionId)
-	if (!context) {
-		return
-	}
-
-	await context.agent.close()
-	sessions.delete(sessionId)
-}
-
 /**
- * Temporarily close the database to allow CLI operations (like mount) that need exclusive access.
- * Call reopenDatabase() after the CLI operation completes.
+ * Open the database for an existing session context.
+ * This should be called after the CLI has initialized and mounted the overlay.
  */
-export async function closeDatabase(sessionId: string): Promise<void> {
+export async function openDatabase(sessionId: string): Promise<void> {
 	const context = sessions.get(sessionId)
 	if (!context) {
+		throw new Error(`Session not found: ${sessionId}`)
+	}
+
+	if (context.agent) {
+		// Database already open
 		return
 	}
 
-	await context.agent.close()
-}
-
-/**
- * Reopen the database after a CLI operation that required exclusive access.
- * Must be called after closeDatabase().
- */
-export async function reopenDatabase(sessionId: string): Promise<void> {
-	const context = sessions.get(sessionId)
-	if (!context) {
-		return
-	}
-
-	// Reopen AgentFS instance with retry for database busy errors
+	// Open AgentFS instance with retry for database busy errors
 	const agent = await withRetry(
 		() => AgentFS.open({ id: sessionId, path: context.mount.dbPath }),
 		isDatabaseBusy,
@@ -147,8 +122,55 @@ export async function reopenDatabase(sessionId: string): Promise<void> {
 	const db = agent.getDatabase()
 	await db.pragma(`busy_timeout = ${BUSY_TIMEOUT_MS}`, {})
 
-	// Update the context with the new agent instance
 	context.agent = agent
+}
+
+/**
+ * Legacy function for backward compatibility.
+ * Creates session and opens database immediately.
+ * Use createSessionContext() + openDatabase() for mount scenarios.
+ */
+export async function createSession(
+	config: AgentFSConfig,
+	sessionId: string,
+	projectPath: string,
+): Promise<SessionContext> {
+	const context = await createSessionContext(config, sessionId, projectPath)
+	await openDatabase(sessionId)
+	return context
+}
+
+export function getSession(sessionId: string): SessionContext | undefined {
+	return sessions.get(sessionId)
+}
+
+/**
+ * Close the database connection for a session.
+ * The session context remains in memory for unmount operations.
+ */
+export async function closeDatabase(sessionId: string): Promise<void> {
+	const context = sessions.get(sessionId)
+	if (!context?.agent) {
+		return
+	}
+
+	await context.agent.close()
+	context.agent = undefined
+}
+
+/**
+ * Close the session completely (close database and remove from memory).
+ */
+export async function closeSession(sessionId: string): Promise<void> {
+	const context = sessions.get(sessionId)
+	if (!context) {
+		return
+	}
+
+	if (context.agent) {
+		await context.agent.close()
+	}
+	sessions.delete(sessionId)
 }
 
 export function getAllSessions(): SessionContext[] {

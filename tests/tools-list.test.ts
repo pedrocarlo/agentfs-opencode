@@ -62,14 +62,14 @@ describe("Tools List & Stats", () => {
 			const session = getSession(sessionId)!
 
 			// Record some tool calls directly
-			await session.agent.tools.record(
+			await session.agent!.tools.record(
 				"read_file",
 				Date.now() / 1000,
 				Date.now() / 1000,
 				{ path: "/test.txt" },
 				{ content: "hello" },
 			)
-			await session.agent.tools.record(
+			await session.agent!.tools.record(
 				"write_file",
 				Date.now() / 1000,
 				Date.now() / 1000,
@@ -89,9 +89,9 @@ describe("Tools List & Stats", () => {
 			await createSession(config, sessionId, testDir)
 			const session = getSession(sessionId)!
 
-			await session.agent.tools.record("read_file", Date.now() / 1000, Date.now() / 1000, {}, {})
-			await session.agent.tools.record("read_file", Date.now() / 1000, Date.now() / 1000, {}, {})
-			await session.agent.tools.record("write_file", Date.now() / 1000, Date.now() / 1000, {}, {})
+			await session.agent!.tools.record("read_file", Date.now() / 1000, Date.now() / 1000, {}, {})
+			await session.agent!.tools.record("read_file", Date.now() / 1000, Date.now() / 1000, {}, {})
+			await session.agent!.tools.record("write_file", Date.now() / 1000, Date.now() / 1000, {}, {})
 
 			const result = await toolsList.execute({ name: "read_file" }, {
 				sessionID: sessionId,
@@ -106,14 +106,14 @@ describe("Tools List & Stats", () => {
 			await createSession(config, sessionId, testDir)
 			const session = getSession(sessionId)!
 
-			await session.agent.tools.record(
+			await session.agent!.tools.record(
 				"tool_a",
 				Date.now() / 1000,
 				Date.now() / 1000,
 				{},
 				{ ok: true },
 			)
-			await session.agent.tools.record(
+			await session.agent!.tools.record(
 				"tool_b",
 				Date.now() / 1000,
 				Date.now() / 1000,
@@ -142,7 +142,7 @@ describe("Tools List & Stats", () => {
 			const session = getSession(sessionId)!
 
 			for (let i = 0; i < 10; i++) {
-				await session.agent.tools.record(`tool_${i}`, Date.now() / 1000, Date.now() / 1000, {}, {})
+				await session.agent!.tools.record(`tool_${i}`, Date.now() / 1000, Date.now() / 1000, {}, {})
 			}
 
 			const result = await toolsList.execute({ limit: 5 }, { sessionID: sessionId } as never)
@@ -156,7 +156,7 @@ describe("Tools List & Stats", () => {
 			const session = getSession(sessionId)!
 
 			const now = Math.floor(Date.now() / 1000)
-			await session.agent.tools.record("test_tool", now, now, {}, {})
+			await session.agent!.tools.record("test_tool", now, now, {}, {})
 
 			const result = await toolsList.execute({}, { sessionID: sessionId } as never)
 			const parsed = JSON.parse(result)
@@ -190,9 +190,9 @@ describe("Tools List & Stats", () => {
 			const session = getSession(sessionId)!
 
 			// Record various tool calls
-			await session.agent.tools.record("read_file", Date.now() / 1000, Date.now() / 1000, {}, {})
-			await session.agent.tools.record("read_file", Date.now() / 1000, Date.now() / 1000, {}, {})
-			await session.agent.tools.record(
+			await session.agent!.tools.record("read_file", Date.now() / 1000, Date.now() / 1000, {}, {})
+			await session.agent!.tools.record("read_file", Date.now() / 1000, Date.now() / 1000, {}, {})
+			await session.agent!.tools.record(
 				"read_file",
 				Date.now() / 1000,
 				Date.now() / 1000,
@@ -200,7 +200,7 @@ describe("Tools List & Stats", () => {
 				undefined,
 				"error",
 			)
-			await session.agent.tools.record("write_file", Date.now() / 1000, Date.now() / 1000, {}, {})
+			await session.agent!.tools.record("write_file", Date.now() / 1000, Date.now() / 1000, {}, {})
 
 			const result = await toolsStats.execute({}, { sessionID: sessionId } as never)
 			const parsed = JSON.parse(result)
@@ -255,7 +255,7 @@ describe("Tools List & Stats", () => {
 
 			// Verify the pending record was UPDATED to success (not a new record created)
 			const session = getSession(sessionId)!
-			const db = session.agent.getDatabase()
+			const db = session.agent!.getDatabase()
 
 			// Check count - should be exactly 1 record
 			const countStmt = db.prepare("SELECT COUNT(*) as count FROM tool_calls WHERE name = ?")
@@ -286,8 +286,8 @@ describe("Tools List & Stats", () => {
 			const afterHandler = createToolExecuteAfterHandler(excludeConfig)
 
 			// Record some other tool calls first
-			await session.agent.tools.record("read_file", Date.now() / 1000, Date.now() / 1000, {}, {})
-			await session.agent.tools.record("write_file", Date.now() / 1000, Date.now() / 1000, {}, {})
+			await session.agent!.tools.record("read_file", Date.now() / 1000, Date.now() / 1000, {}, {})
+			await session.agent!.tools.record("write_file", Date.now() / 1000, Date.now() / 1000, {}, {})
 
 			// Simulate tools_list execution with tracking
 			const callID = "call-tools-list-excluded"
@@ -310,7 +310,7 @@ describe("Tools List & Stats", () => {
 			expect(parsed.calls.every((c: { name: string }) => c.name !== "tools_stats")).toBe(true)
 
 			// Verify no tools_list records were created
-			const db = session.agent.getDatabase()
+			const db = session.agent!.getDatabase()
 			const stmt = db.prepare("SELECT COUNT(*) as count FROM tool_calls WHERE name = ?")
 			const toolsListCount = await stmt.get("tools_list")
 			expect(toolsListCount.count).toBe(0)
@@ -333,8 +333,8 @@ describe("Tools List & Stats", () => {
 			const afterHandler = createToolExecuteAfterHandler(excludeConfig)
 
 			// Record some tool calls
-			await session.agent.tools.record("read_file", Date.now() / 1000, Date.now() / 1000, {}, {})
-			await session.agent.tools.record("read_file", Date.now() / 1000, Date.now() / 1000, {}, {})
+			await session.agent!.tools.record("read_file", Date.now() / 1000, Date.now() / 1000, {}, {})
+			await session.agent!.tools.record("read_file", Date.now() / 1000, Date.now() / 1000, {}, {})
 
 			// Simulate tools_stats execution
 			const callID = "call-tools-stats-excluded"

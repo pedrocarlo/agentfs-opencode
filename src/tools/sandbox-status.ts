@@ -8,7 +8,7 @@ export const sandboxStatus = tool({
 	args: {},
 	async execute(_args, context) {
 		const session = getSession(context.sessionID)
-		if (!session) {
+		if (!session || !session.agent) {
 			return JSON.stringify({ error: "Session not found" })
 		}
 

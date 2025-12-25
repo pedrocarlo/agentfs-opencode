@@ -13,7 +13,7 @@ export interface MountInfo {
 export interface SessionContext {
 	sessionId: string
 	projectPath: string
-	agent: AgentFS
+	agent?: AgentFS
 	mount: MountInfo
 }
 

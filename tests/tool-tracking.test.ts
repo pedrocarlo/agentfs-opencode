@@ -61,7 +61,7 @@ describe("Tool Tracking", () => {
 			)
 
 			// Should have no records since tracking is disabled
-			const stats = await session.agent.tools.getStats()
+			const stats = await session.agent!.tools.getStats()
 			expect(stats.length).toBe(0)
 		})
 
@@ -101,7 +101,7 @@ describe("Tool Tracking", () => {
 				{ title: "Test", output: "success", metadata: {} },
 			)
 
-			const stats = await session.agent.tools.getStats()
+			const stats = await session.agent!.tools.getStats()
 			expect(stats.length).toBe(1)
 			expect(stats[0]!.name).toBe("included_tool")
 		})
@@ -127,7 +127,7 @@ describe("Tool Tracking", () => {
 				{ title: "Test", output: "success", metadata: {} },
 			)
 
-			const stats = await session.agent.tools.getStats()
+			const stats = await session.agent!.tools.getStats()
 			expect(stats.length).toBe(0)
 		})
 	})
@@ -151,7 +151,7 @@ describe("Tool Tracking", () => {
 			)
 
 			// Query the database directly to verify only one record
-			const db = session.agent.getDatabase()
+			const db = session.agent!.getDatabase()
 			const stmt = db.prepare("SELECT COUNT(*) as count FROM tool_calls WHERE name = ?")
 			const result = await stmt.get("test_tool")
 			expect(result.count).toBe(1)
@@ -183,7 +183,7 @@ describe("Tool Tracking", () => {
 				{ title: "Write File", output: "File written successfully", metadata: {} },
 			)
 
-			const calls = await session.agent.tools.getByName("write_file")
+			const calls = await session.agent!.tools.getByName("write_file")
 			expect(calls.length).toBe(1)
 			expect(calls[0]!.parameters).toEqual(testArgs)
 		})
@@ -205,7 +205,7 @@ describe("Tool Tracking", () => {
 				{ title: "Failing Tool", output: "Error: Something went wrong", metadata: {} },
 			)
 
-			const calls = await session.agent.tools.getByName("failing_tool")
+			const calls = await session.agent!.tools.getByName("failing_tool")
 			expect(calls.length).toBe(1)
 			expect(calls[0]!.status).toBe("error")
 			expect(calls[0]!.error).toBe("Error: Something went wrong")
@@ -248,7 +248,7 @@ describe("Tool Tracking", () => {
 				{ title: "Tool A", output: "done", metadata: {} },
 			)
 
-			const stats = await session.agent.tools.getStats()
+			const stats = await session.agent!.tools.getStats()
 			const toolAStats = stats.find((s) => s.name === "tool_a")
 			const toolBStats = stats.find((s) => s.name === "tool_b")
 
@@ -295,7 +295,7 @@ describe("Tool Tracking", () => {
 				{ title: "Slow Tool", output: "done", metadata: {} },
 			)
 
-			const calls = await session.agent.tools.getByName("slow_tool")
+			const calls = await session.agent!.tools.getByName("slow_tool")
 			expect(calls.length).toBe(1)
 			// Duration should be at least 1000ms (SDK uses second-level granularity)
 			expect(calls[0]!.duration_ms).toBeGreaterThanOrEqual(1000)
@@ -320,7 +320,7 @@ describe("Tool Tracking", () => {
 			await Bun.sleep(50)
 
 			// Check that a pending record exists
-			const db = session.agent.getDatabase()
+			const db = session.agent!.getDatabase()
 			const pendingStmt = db.prepare(
 				"SELECT * FROM tool_calls WHERE name = ? AND status = 'pending'",
 			)
@@ -364,7 +364,7 @@ describe("Tool Tracking", () => {
 			await Bun.sleep(50)
 
 			// Verify pending record exists
-			const db = session.agent.getDatabase()
+			const db = session.agent!.getDatabase()
 			const pendingStmt = db.prepare(
 				"SELECT * FROM tool_calls WHERE name = ? AND status = 'pending'",
 			)
@@ -410,7 +410,7 @@ describe("Tool Tracking", () => {
 			await Bun.sleep(50)
 
 			// Both should be pending
-			const db = session.agent.getDatabase()
+			const db = session.agent!.getDatabase()
 			const pendingStmt = db.prepare(
 				"SELECT COUNT(*) as count FROM tool_calls WHERE name = ? AND status = 'pending'",
 			)
@@ -492,13 +492,13 @@ describe("Tool Tracking", () => {
 			])
 
 			// Should have exactly 3 records, one for each call
-			const db = session.agent.getDatabase()
+			const db = session.agent!.getDatabase()
 			const stmt = db.prepare("SELECT COUNT(*) as count FROM tool_calls WHERE name = ?")
 			const result = await stmt.get("concurrent_tool")
 			expect(result.count).toBe(3)
 
 			// All should be successful
-			const stats = await session.agent.tools.getStats()
+			const stats = await session.agent!.tools.getStats()
 			const toolStats = stats.find((s) => s.name === "concurrent_tool")
 			expect(toolStats?.total_calls).toBe(3)
 			expect(toolStats?.successful).toBe(3)
@@ -528,7 +528,7 @@ describe("Tool Tracking", () => {
 			await Bun.sleep(50)
 
 			// Should only have 1 pending record (second call was skipped)
-			const db = session.agent.getDatabase()
+			const db = session.agent!.getDatabase()
 			const countStmt = db.prepare("SELECT COUNT(*) as count FROM tool_calls WHERE name = ?")
 			const countResult = await countStmt.get("dup_test_tool")
 			expect(countResult.count).toBe(1)

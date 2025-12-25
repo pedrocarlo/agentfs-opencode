@@ -4,7 +4,23 @@ import type { MountInfo } from "./types"
 
 const mountProcesses = new Map<string, Subprocess>()
 
-async function isAgentFSInstalled(): Promise<boolean> {
+/**
+ * Build the command arguments for `agentfs init`.
+ * Exported for testing.
+ */
+export function buildInitCommand(sessionId: string, basePath: string): string[] {
+	return ["agentfs", "init", sessionId, "--base", basePath]
+}
+
+/**
+ * Build the command arguments for `agentfs mount`.
+ * Exported for testing.
+ */
+export function buildMountCommand(sessionId: string, mountPath: string): string[] {
+	return ["agentfs", "mount", sessionId, mountPath]
+}
+
+export async function isAgentFSInstalled(): Promise<boolean> {
 	try {
 		const proc = spawn(["which", "agentfs"], {
 			stdout: "pipe",
@@ -29,7 +45,8 @@ export async function mountOverlay(mount: MountInfo, projectPath: string): Promi
 
 	// Initialize AgentFS with project as base
 	// Run from project root so the CLI creates .agentfs/ in the right place
-	const initProc = spawn(["agentfs", "init", mount.sessionId, "--base", projectPath], {
+	const initCmd = buildInitCommand(mount.sessionId, projectPath)
+	const initProc = spawn(initCmd, {
 		stdout: "pipe",
 		stderr: "pipe",
 		cwd: projectPath,
@@ -46,7 +63,8 @@ export async function mountOverlay(mount: MountInfo, projectPath: string): Promi
 
 	// Mount the overlay
 	// Run from project root to find the .agentfs/ database
-	const mountProc = spawn(["agentfs", "mount", mount.sessionId, mount.mountPath], {
+	const mountCmd = buildMountCommand(mount.sessionId, mount.mountPath)
+	const mountProc = spawn(mountCmd, {
 		stdout: "pipe",
 		stderr: "pipe",
 		cwd: projectPath,

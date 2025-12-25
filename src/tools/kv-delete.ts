@@ -8,7 +8,7 @@ export const kvDelete = tool({
 	},
 	async execute(args, context) {
 		const session = getSession(context.sessionID)
-		if (!session) {
+		if (!session || !session.agent) {
 			return JSON.stringify({ error: "Session not found", key: args.key })
 		}
 

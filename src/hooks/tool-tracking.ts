@@ -75,9 +75,9 @@ export function createToolExecuteBeforeHandler(config: AgentFSConfig, client?: L
 		const session = getSession(input.sessionID)
 		let pendingIdPromise: Promise<number> | undefined
 
-		log(client, "debug", `BEFORE session found: ${!!session}`)
+		log(client, "debug", `BEFORE session found: ${!!session} agent: ${!!session?.agent}`)
 
-		if (session) {
+		if (session?.agent) {
 			pendingIdPromise = session.agent.tools.start(input.tool, output.args).catch((err) => {
 				log(client, "error", `Failed to create pending tool call: ${err}`)
 				return -1 // Return invalid ID on error
@@ -124,11 +124,11 @@ export function createToolExecuteAfterHandler(config: AgentFSConfig, client?: Lo
 		}
 
 		const session = getSession(input.sessionID)
-		if (!session) {
+		if (!session || !session.agent) {
 			log(
 				client,
 				"warn",
-				`AFTER no session found for sessionID=${input.sessionID}, returning early`,
+				`AFTER no session/agent found for sessionID=${input.sessionID}, returning early`,
 			)
 			return
 		}
