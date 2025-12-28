@@ -233,15 +233,27 @@ export function createPathRewriteAfterHandler(config: AgentFSConfig, client?: Lo
 		input: { tool: string; sessionID: string; callID: string },
 		output: { title: string; output: string; metadata: unknown },
 	) => {
-		// Only rewrite on Linux when autoMount is enabled
-		if (!IS_LINUX || !config.autoMount) {
+		log(client, "info", `Path rewrite AFTER hook called`, {
+			tool: input.tool,
+			sessionID: input.sessionID,
+			hasTitle: !!output.title,
+			titlePreview: output.title?.slice(0, 100),
+			isLinux: IS_LINUX,
+			autoMount: config.autoMount,
+		})
+		const session = getSession(input.sessionID)
+
+		if (!session?.mount?.mounted) {
+			log(client, "debug", `Path rewrite AFTER skipped: no mounted session`)
 			return
 		}
 
-		const session = getSession(input.sessionID)
-		if (!session?.mount?.mounted) {
-			return
-		}
+		log(client, "debug", `Path rewrite AFTER session lookup`, {
+			found: !!session,
+			mounted: session?.mount?.mounted,
+			projectPath: session?.projectPath,
+			mountPath: session?.mount?.mountPath,
+		})
 
 		const projectPath = session.projectPath
 		const mountPath = session.mount.mountPath
@@ -250,7 +262,7 @@ export function createPathRewriteAfterHandler(config: AgentFSConfig, client?: Lo
 		if (output.output) {
 			const rewritten = rewritePathsInString(output.output, mountPath, projectPath)
 			if (rewritten !== output.output) {
-				log(client, "debug", `Rewriting output paths`, {
+				log(client, "info", `Rewriting output paths`, {
 					tool: input.tool,
 					from: mountPath,
 					to: projectPath,
@@ -262,8 +274,13 @@ export function createPathRewriteAfterHandler(config: AgentFSConfig, client?: Lo
 		// Also rewrite in title if present
 		if (output.title) {
 			const rewritten = rewritePathsInString(output.title, mountPath, projectPath)
+			log(client, "debug", `Path rewrite AFTER title check`, {
+				original: output.title,
+				rewritten,
+				changed: rewritten !== output.title,
+			})
 			if (rewritten !== output.title) {
-				log(client, "debug", `Rewriting title paths`, {
+				log(client, "info", `Rewriting title paths`, {
 					tool: input.tool,
 					from: mountPath,
 					to: projectPath,
