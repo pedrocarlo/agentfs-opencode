@@ -210,6 +210,18 @@ function rewritePathsInOutput(
 	return result
 }
 
+function hasStringField<K extends string>(
+	obj: unknown,
+	key: K,
+): obj is { [P in K]: string } & Record<string, unknown> {
+	return (
+		typeof obj === "object" &&
+		obj !== null &&
+		key in obj &&
+		typeof (obj as Record<string, unknown>)[key] === "string"
+	)
+}
+
 /**
  * Create a hook that rewrites paths from project directory to mount directory.
  * This allows tools to operate on the sandboxed filesystem transparently.
@@ -219,22 +231,12 @@ export function createPathRewriteHandler(config: AgentFSConfig, client?: Logging
 		input: { tool: string; sessionID: string; callID: string },
 		output: { args: Record<string, unknown> },
 	) => {
-		log(client, "debug", `Path rewrite hook called`, {
+		log(client, "info", `Path rewrite hook called`, {
 			input,
 			output,
 			isLinux: IS_LINUX,
 			autoMount: config.autoMount,
 		})
-
-		// Only rewrite on Linux when autoMount is enabled
-		if (!IS_LINUX || !config.autoMount) {
-			log(
-				client,
-				"debug",
-				`Path rewrite skipped: IS_LINUX=${IS_LINUX}, autoMount=${config.autoMount}`,
-			)
-			return
-		}
 
 		const session = getSession(input.sessionID)
 		log(client, "debug", `Path rewrite session lookup`, {
@@ -333,20 +335,24 @@ export function createPathRewriteAfterHandler(config: AgentFSConfig, client?: Lo
 		const projectPath = session.projectPath
 		const mountPath = session.mount.mountPath
 
-		// Rewrite mount paths back to project paths in the output
-		// Uses rewritePathsInOutput which handles both absolute and relative paths
-		if (output.output) {
-			const rewritten = rewritePathsInOutput(output.output, mountPath, projectPath, client)
-			if (rewritten !== output.output) {
-				output.output = rewritten
-			}
-		}
-
 		// Also rewrite in title if present
 		if (output.title) {
 			const rewritten = rewritePathsInOutput(output.title, mountPath, projectPath, client)
 			if (rewritten !== output.title) {
 				output.title = rewritten
+			}
+		}
+
+		// Rewrite filepath in metadata if present
+		if (hasStringField(output.metadata, "filepath")) {
+			const filepath = output.metadata.filepath
+			const rewritten = rewritePathsInOutput(filepath, mountPath, projectPath, client)
+			if (rewritten !== filepath) {
+				log(client, "info", `Rewriting metadata.filepath`, {
+					from: filepath,
+					to: rewritten,
+				})
+				output.metadata.filepath = rewritten
 			}
 		}
 	}
@@ -360,4 +366,5 @@ export {
 	rewritePathsInString,
 	rewritePathsInOutput,
 	extractAgentFSPattern,
+	hasStringField,
 }

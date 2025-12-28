@@ -1,6 +1,13 @@
-import { describe, expect, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, test } from "bun:test"
+import { mkdir, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { closeSession, createSessionContext, getSession } from "../src/agentfs/client"
+import type { AgentFSConfig } from "../src/config/schema"
 import {
+	createPathRewriteAfterHandler,
 	extractAgentFSPattern,
+	hasStringField,
 	normalizePath,
 	rewritePathsInOutput,
 	rewritePathsInString,
@@ -427,5 +434,318 @@ describe("round-trip conversion", () => {
 		const restored = toProjectPath(mounted, projectPath, mountPath)
 		// Path gets normalized during conversion
 		expect(restored).toBe("/home/user/project/lib/file.ts")
+	})
+})
+
+describe("hasStringField", () => {
+	test("returns true for object with string field", () => {
+		const obj = { filepath: "/path/to/file" }
+		expect(hasStringField(obj, "filepath")).toBe(true)
+	})
+
+	test("returns false for missing field", () => {
+		const obj = { other: "value" }
+		expect(hasStringField(obj, "filepath")).toBe(false)
+	})
+
+	test("returns false for non-string field", () => {
+		const obj = { filepath: 123 }
+		expect(hasStringField(obj, "filepath")).toBe(false)
+	})
+
+	test("returns false for null field value", () => {
+		const obj = { filepath: null }
+		expect(hasStringField(obj, "filepath")).toBe(false)
+	})
+
+	test("returns false for undefined field value", () => {
+		const obj = { filepath: undefined }
+		expect(hasStringField(obj, "filepath")).toBe(false)
+	})
+
+	test("returns false for null object", () => {
+		expect(hasStringField(null, "filepath")).toBe(false)
+	})
+
+	test("returns false for undefined object", () => {
+		expect(hasStringField(undefined, "filepath")).toBe(false)
+	})
+
+	test("returns false for primitive values", () => {
+		expect(hasStringField("string", "filepath")).toBe(false)
+		expect(hasStringField(123, "filepath")).toBe(false)
+		expect(hasStringField(true, "filepath")).toBe(false)
+	})
+
+	test("returns false for array", () => {
+		expect(hasStringField(["filepath"], "filepath")).toBe(false)
+	})
+
+	test("narrows type correctly", () => {
+		const obj: unknown = { filepath: "/path/to/file", extra: 42 }
+		if (hasStringField(obj, "filepath")) {
+			// TypeScript should know obj.filepath is string here
+			const path: string = obj.filepath
+			expect(path).toBe("/path/to/file")
+		} else {
+			throw new Error("Expected hasStringField to return true")
+		}
+	})
+
+	test("works with different key names", () => {
+		const obj = { customPath: "/some/path", name: "test" }
+		expect(hasStringField(obj, "customPath")).toBe(true)
+		expect(hasStringField(obj, "name")).toBe(true)
+		expect(hasStringField(obj, "missing")).toBe(false)
+	})
+
+	test("handles object with mixed value types", () => {
+		const obj = {
+			stringField: "value",
+			numberField: 42,
+			boolField: true,
+			nullField: null,
+			objectField: { nested: "value" },
+		}
+		expect(hasStringField(obj, "stringField")).toBe(true)
+		expect(hasStringField(obj, "numberField")).toBe(false)
+		expect(hasStringField(obj, "boolField")).toBe(false)
+		expect(hasStringField(obj, "nullField")).toBe(false)
+		expect(hasStringField(obj, "objectField")).toBe(false)
+	})
+})
+
+describe("createPathRewriteAfterHandler", () => {
+	let testDir: string
+	let config: AgentFSConfig
+	const sessionId = "test-path-rewrite-session"
+
+	beforeEach(async () => {
+		testDir = join(tmpdir(), `agentfs-path-rewrite-test-${Date.now()}`)
+		await mkdir(testDir, { recursive: true })
+
+		config = {
+			dbPath: join(testDir, ".agentfs/"),
+			mountPath: join(testDir, "mounts/"),
+			autoMount: true,
+			toolTracking: {
+				enabled: true,
+				trackAll: true,
+			},
+		}
+	})
+
+	afterEach(async () => {
+		const session = getSession(sessionId)
+		if (session) {
+			await closeSession(sessionId)
+		}
+		await rm(testDir, { recursive: true, force: true })
+	})
+
+	test("does nothing when session is not found", () => {
+		const handler = createPathRewriteAfterHandler(config)
+		const output = {
+			title: "/mnt/session/file.txt",
+			output: "",
+			metadata: { filepath: "/mnt/session/file.txt" },
+		}
+
+		handler({ tool: "write", sessionID: "non-existent", callID: "call-1" }, output)
+
+		// Output should be unchanged
+		expect(output.title).toBe("/mnt/session/file.txt")
+		expect(output.metadata.filepath).toBe("/mnt/session/file.txt")
+	})
+
+	test("does nothing when session is not mounted", async () => {
+		const projectPath = "/home/user/project"
+		await createSessionContext(config, sessionId, projectPath)
+
+		const session = getSession(sessionId)
+		expect(session?.mount.mounted).toBe(false)
+
+		const handler = createPathRewriteAfterHandler(config)
+		const mountPath = session!.mount.mountPath
+		const output = {
+			title: `${mountPath}/file.txt`,
+			output: "",
+			metadata: { filepath: `${mountPath}/file.txt` },
+		}
+
+		handler({ tool: "write", sessionID: sessionId, callID: "call-1" }, output)
+
+		// Output should be unchanged because session is not mounted
+		expect(output.title).toBe(`${mountPath}/file.txt`)
+		expect(output.metadata.filepath).toBe(`${mountPath}/file.txt`)
+	})
+
+	test("rewrites title when session is mounted", async () => {
+		const projectPath = "/home/user/project"
+		await createSessionContext(config, sessionId, projectPath)
+
+		const session = getSession(sessionId)!
+		session.mount.mounted = true
+
+		const handler = createPathRewriteAfterHandler(config)
+		const mountPath = session.mount.mountPath
+		const output = {
+			title: `${mountPath}/file.txt`,
+			output: "",
+			metadata: {},
+		}
+
+		handler({ tool: "write", sessionID: sessionId, callID: "call-1" }, output)
+
+		expect(output.title).toBe(`${projectPath}/file.txt`)
+	})
+
+	test("rewrites metadata.filepath when session is mounted", async () => {
+		const projectPath = "/home/user/project"
+		await createSessionContext(config, sessionId, projectPath)
+
+		const session = getSession(sessionId)!
+		session.mount.mounted = true
+
+		const handler = createPathRewriteAfterHandler(config)
+		const mountPath = session.mount.mountPath
+		const output = {
+			title: "some title",
+			output: "",
+			metadata: { filepath: `${mountPath}/src/index.ts` },
+		}
+
+		handler({ tool: "write", sessionID: sessionId, callID: "call-1" }, output)
+
+		expect(output.metadata.filepath).toBe(`${projectPath}/src/index.ts`)
+	})
+
+	test("rewrites both title and metadata.filepath", async () => {
+		const projectPath = "/home/user/project"
+		await createSessionContext(config, sessionId, projectPath)
+
+		const session = getSession(sessionId)!
+		session.mount.mounted = true
+
+		const handler = createPathRewriteAfterHandler(config)
+		const mountPath = session.mount.mountPath
+		const output = {
+			title: `Wrote ${mountPath}/poem.txt`,
+			output: "",
+			metadata: {
+				filepath: `${mountPath}/poem.txt`,
+				diagnostics: {},
+				exists: false,
+			},
+		}
+
+		handler({ tool: "write", sessionID: sessionId, callID: "call-1" }, output)
+
+		expect(output.title).toBe(`Wrote ${projectPath}/poem.txt`)
+		expect(output.metadata.filepath).toBe(`${projectPath}/poem.txt`)
+	})
+
+	test("rewrites relative paths in title", async () => {
+		const projectPath = "/home/user/project"
+		// Use a mount path that matches the .agentfs/mounts pattern
+		const agentfsConfig: AgentFSConfig = {
+			...config,
+			mountPath: join(testDir, ".agentfs/mounts/"),
+		}
+		await createSessionContext(agentfsConfig, sessionId, projectPath)
+
+		const session = getSession(sessionId)!
+		session.mount.mounted = true
+
+		const handler = createPathRewriteAfterHandler(agentfsConfig)
+		const output = {
+			title: `../../.agentfs/mounts/${sessionId}/poem.txt`,
+			output: "",
+			metadata: {},
+		}
+
+		handler({ tool: "write", sessionID: sessionId, callID: "call-1" }, output)
+
+		expect(output.title).toBe("./poem.txt")
+	})
+
+	test("does not modify metadata when filepath is not a string", async () => {
+		const projectPath = "/home/user/project"
+		await createSessionContext(config, sessionId, projectPath)
+
+		const session = getSession(sessionId)!
+		session.mount.mounted = true
+
+		const handler = createPathRewriteAfterHandler(config)
+		const output = {
+			title: "some title",
+			output: "",
+			metadata: { filepath: 123, other: "value" },
+		}
+
+		handler({ tool: "write", sessionID: sessionId, callID: "call-1" }, output)
+
+		expect(output.metadata.filepath).toBe(123)
+		expect(output.metadata.other).toBe("value")
+	})
+
+	test("does not modify metadata when it is null", async () => {
+		const projectPath = "/home/user/project"
+		await createSessionContext(config, sessionId, projectPath)
+
+		const session = getSession(sessionId)!
+		session.mount.mounted = true
+
+		const handler = createPathRewriteAfterHandler(config)
+		const output = {
+			title: "some title",
+			output: "",
+			metadata: null as unknown,
+		}
+
+		handler({ tool: "write", sessionID: sessionId, callID: "call-1" }, output)
+
+		expect(output.metadata).toBeNull()
+	})
+
+	test("handles empty title", async () => {
+		const projectPath = "/home/user/project"
+		await createSessionContext(config, sessionId, projectPath)
+
+		const session = getSession(sessionId)!
+		session.mount.mounted = true
+
+		const handler = createPathRewriteAfterHandler(config)
+		const mountPath = session.mount.mountPath
+		const output = {
+			title: "",
+			output: "",
+			metadata: { filepath: `${mountPath}/file.txt` },
+		}
+
+		handler({ tool: "write", sessionID: sessionId, callID: "call-1" }, output)
+
+		expect(output.title).toBe("")
+		expect(output.metadata.filepath).toBe(`${projectPath}/file.txt`)
+	})
+
+	test("preserves paths outside mount directory", async () => {
+		const projectPath = "/home/user/project"
+		await createSessionContext(config, sessionId, projectPath)
+
+		const session = getSession(sessionId)!
+		session.mount.mounted = true
+
+		const handler = createPathRewriteAfterHandler(config)
+		const output = {
+			title: "/other/path/file.txt",
+			output: "",
+			metadata: { filepath: "/different/path/file.txt" },
+		}
+
+		handler({ tool: "write", sessionID: sessionId, callID: "call-1" }, output)
+
+		expect(output.title).toBe("/other/path/file.txt")
+		expect(output.metadata.filepath).toBe("/different/path/file.txt")
 	})
 })
