@@ -6,6 +6,20 @@ import type { MountInfo } from "./types"
 const mountProcesses = new Map<string, Subprocess>()
 
 /**
+ * Kill all mount processes. Used for cleanup on process exit.
+ */
+export function killAllMountProcesses(): void {
+	for (const [sessionId, proc] of mountProcesses) {
+		try {
+			proc.kill()
+			mountProcesses.delete(sessionId)
+		} catch {
+			// Ignore errors - process may already be dead
+		}
+	}
+}
+
+/**
  * Build the command arguments for `agentfs init`.
  * Exported for testing.
  */
@@ -18,7 +32,10 @@ export function buildInitCommand(sessionId: string, basePath: string): string[] 
  * Exported for testing.
  */
 export function buildMountCommand(sessionId: string, mountPath: string): string[] {
-	return ["agentfs", "mount", sessionId, mountPath, "--auto-unmount"]
+	// -f (foreground) prevents FUSE from forking, keeping it as a direct child process
+	// This ensures the mount is cleaned up when the parent process dies
+	// --auto-unmount is a fallback in case the process is killed
+	return ["agentfs", "mount", sessionId, mountPath, "-f", "--auto-unmount"]
 }
 
 export async function isAgentFSInstalled(): Promise<boolean> {

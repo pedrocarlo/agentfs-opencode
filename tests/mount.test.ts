@@ -46,7 +46,14 @@ describe("Mount Commands", () => {
 		test("builds correct mount command", () => {
 			const cmd = buildMountCommand("my-session", "/mount/point")
 
-			expect(cmd).toEqual(["agentfs", "mount", "my-session", "/mount/point"])
+			expect(cmd).toEqual([
+				"agentfs",
+				"mount",
+				"my-session",
+				"/mount/point",
+				"-f",
+				"--auto-unmount",
+			])
 		})
 
 		test("includes session ID and mount path in correct positions", () => {

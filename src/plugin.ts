@@ -4,6 +4,7 @@ import {
 	createSessionHandler,
 	createToolExecuteAfterHandler,
 	createToolExecuteBeforeHandler,
+	registerCleanupHandlers,
 } from "./hooks"
 import { log } from "./log"
 import {
@@ -37,6 +38,9 @@ export const AgentFSPlugin: Plugin = async (input) => {
 		trackAll: config.toolTracking.trackAll,
 		excludeTools: config.toolTracking.excludeTools,
 	})
+
+	// Register process signal handlers to cleanup sessions on termination
+	registerCleanupHandlers(loggingClient)
 
 	// Create hook handlers
 	log(loggingClient, "debug", `Creating hook handlers`)
