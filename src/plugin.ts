@@ -7,17 +7,7 @@ import {
 	registerCleanupHandlers,
 } from "./hooks"
 import { log } from "./log"
-import {
-	kvDelete,
-	kvGet,
-	kvList,
-	kvSet,
-	sandboxApply,
-	sandboxDiff,
-	sandboxStatus,
-	toolsList,
-	toolsStats,
-} from "./tools"
+import { kvDelete, kvGet, kvList, kvSet, toolsList, toolsStats } from "./tools"
 
 export const AgentFSPlugin: Plugin = async (input) => {
 	const { project, directory, client } = input
@@ -62,9 +52,6 @@ export const AgentFSPlugin: Plugin = async (input) => {
 			kv_set: kvSet,
 			kv_delete: kvDelete,
 			kv_list: kvList,
-			sandbox_status: sandboxStatus,
-			sandbox_diff: sandboxDiff,
-			sandbox_apply: sandboxApply,
 			tools_list: toolsList,
 			tools_stats: toolsStats,
 		},
