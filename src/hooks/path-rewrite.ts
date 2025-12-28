@@ -37,16 +37,15 @@ function rewritePath(path: string, projectPath: string, mountPath: string): stri
 }
 
 /**
- * Rewrite paths in a bash command string.
- * This handles paths that appear in the command.
+ * Rewrite paths in a string (command, output, etc).
  * Only rewrites complete path matches (followed by /, space, quote, or end of string).
  */
-function rewriteBashCommand(command: string, projectPath: string, mountPath: string): string {
-	// Escape special regex characters in projectPath
-	const escaped = projectPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-	// Match projectPath only when followed by /, space, quote, or end of string
+function rewritePathsInString(text: string, fromPath: string, toPath: string): string {
+	// Escape special regex characters in fromPath
+	const escaped = fromPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+	// Match fromPath only when followed by /, space, quote, or end of string
 	// This prevents matching /myapp2 when looking for /myapp
-	return command.replace(new RegExp(`${escaped}(?=/|\\s|"|'|$)`, "g"), mountPath)
+	return text.replace(new RegExp(`${escaped}(?=/|\\s|"|'|$)`, "g"), toPath)
 }
 
 /**
@@ -114,7 +113,7 @@ export function createPathRewriteHandler(config: AgentFSConfig, client?: Logging
 			}
 
 			if (toolLower === "bash" && field === "command") {
-				const rewritten = rewriteBashCommand(value, projectPath, mountPath)
+				const rewritten = rewritePathsInString(value, projectPath, mountPath)
 				if (rewritten !== value) {
 					log(client, "info", `Rewriting Bash command paths`, {
 						from: projectPath,
@@ -133,6 +132,56 @@ export function createPathRewriteHandler(config: AgentFSConfig, client?: Logging
 					})
 					output.args[field] = rewritten
 				}
+			}
+		}
+	}
+}
+
+/**
+ * Create a hook that rewrites paths from mount directory back to project directory.
+ * This makes tool outputs show original project paths instead of mount paths.
+ */
+export function createPathRewriteAfterHandler(config: AgentFSConfig, client?: LoggingClient) {
+	return (
+		input: { tool: string; sessionID: string; callID: string },
+		output: { title: string; output: string; metadata: unknown },
+	) => {
+		// Only rewrite on Linux when autoMount is enabled
+		if (!IS_LINUX || !config.autoMount) {
+			return
+		}
+
+		const session = getSession(input.sessionID)
+		if (!session?.mount?.mounted) {
+			return
+		}
+
+		const projectPath = session.projectPath
+		const mountPath = session.mount.mountPath
+
+		// Rewrite mount paths back to project paths in the output
+		if (output.output) {
+			const rewritten = rewritePathsInString(output.output, mountPath, projectPath)
+			if (rewritten !== output.output) {
+				log(client, "debug", `Rewriting output paths`, {
+					tool: input.tool,
+					from: mountPath,
+					to: projectPath,
+				})
+				output.output = rewritten
+			}
+		}
+
+		// Also rewrite in title if present
+		if (output.title) {
+			const rewritten = rewritePathsInString(output.title, mountPath, projectPath)
+			if (rewritten !== output.title) {
+				log(client, "debug", `Rewriting title paths`, {
+					tool: input.tool,
+					from: mountPath,
+					to: projectPath,
+				})
+				output.title = rewritten
 			}
 		}
 	}

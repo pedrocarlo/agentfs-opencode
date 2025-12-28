@@ -1,10 +1,9 @@
 import type { Hooks, Plugin } from "@opencode-ai/plugin"
 import { parseConfig } from "./config/schema"
 import {
+	createPathRewriteAfterHandler,
 	createPathRewriteHandler,
 	createSessionHandler,
-	createToolExecuteAfterHandler,
-	createToolExecuteBeforeHandler,
 	registerCleanupHandlers,
 } from "./hooks"
 import { log } from "./log"
@@ -13,7 +12,7 @@ export const AgentFSPlugin: Plugin = async (input) => {
 	const { project, directory, client } = input
 
 	// Cast client to include log method (SDK types may not be up to date)
-	const loggingClient = client as unknown as Parameters<typeof createToolExecuteBeforeHandler>[1]
+	const loggingClient = client as unknown as Parameters<typeof createPathRewriteHandler>[1]
 
 	log(loggingClient, "info", `Plugin initializing for project: ${directory}`)
 
@@ -35,11 +34,10 @@ export const AgentFSPlugin: Plugin = async (input) => {
 	// Create hook handlers
 	log(loggingClient, "debug", `Creating hook handlers`)
 	const sessionHandler = createSessionHandler(config, directory, client)
-	const pathRewriteHandler = createPathRewriteHandler(config, loggingClient)
-	const toolTrackingBefore = createToolExecuteBeforeHandler(config, loggingClient)
-	const toolExecuteAfter = createToolExecuteAfterHandler(config, loggingClient)
+	const pathRewriteBeforeHandler = createPathRewriteHandler(config, loggingClient)
+	const pathRewriteAfterHandler = createPathRewriteAfterHandler(config, loggingClient)
 
-	// Combined before handler: path rewrite runs first, then tool tracking
+	// Combined before handler: path rewrite runs first
 	const toolExecuteBefore = async (
 		input: { tool: string; sessionID: string; callID: string },
 		output: { args: Record<string, unknown> },
@@ -50,9 +48,21 @@ export const AgentFSPlugin: Plugin = async (input) => {
 			callID: input.callID,
 		})
 		// Rewrite paths from project dir to mount dir (mutates output.args)
-		pathRewriteHandler(input, output)
-		// Then track the tool call with rewritten args
-		// await toolTrackingBefore(input, output)
+		pathRewriteBeforeHandler(input, output)
+	}
+
+	// Combined after handler: path rewrite to fix output paths
+	const toolExecuteAfter = async (
+		input: { tool: string; sessionID: string; callID: string },
+		output: { title: string; output: string; metadata: unknown },
+	) => {
+		log(loggingClient, "debug", `tool.execute.after called`, {
+			tool: input.tool,
+			sessionID: input.sessionID,
+			callID: input.callID,
+		})
+		// Rewrite paths from mount dir back to project dir (mutates output)
+		pathRewriteAfterHandler(input, output)
 	}
 
 	const hooks: Hooks = {
