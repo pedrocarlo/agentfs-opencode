@@ -7,7 +7,6 @@ import {
 	registerCleanupHandlers,
 } from "./hooks"
 import { log } from "./log"
-import { kvDelete, kvGet, kvList, kvSet, toolsList, toolsStats } from "./tools"
 
 export const AgentFSPlugin: Plugin = async (input) => {
 	const { project, directory, client } = input
@@ -45,21 +44,9 @@ export const AgentFSPlugin: Plugin = async (input) => {
 		// Tool tracking hooks
 		"tool.execute.before": toolExecuteBefore,
 		"tool.execute.after": toolExecuteAfter,
-
-		// Custom tools
-		tool: {
-			kv_get: kvGet,
-			kv_set: kvSet,
-			kv_delete: kvDelete,
-			kv_list: kvList,
-			tools_list: toolsList,
-			tools_stats: toolsStats,
-		},
 	}
 
-	log(loggingClient, "info", `Plugin loaded successfully`, {
-		toolsRegistered: Object.keys(hooks.tool || {}).length,
-	})
+	log(loggingClient, "info", `Plugin loaded successfully`)
 
 	return hooks
 }
