@@ -43,32 +43,27 @@ describe("Mount Commands", () => {
 	})
 
 	describe("buildMountCommand", () => {
-		test("builds correct mount command", () => {
-			const cmd = buildMountCommand("my-session", "/mount/point")
+		test("builds shell command with watchdog", () => {
+			const cmd = buildMountCommand("my-session", "/mount/point", 12345)
 
-			expect(cmd).toEqual([
-				"agentfs",
-				"mount",
-				"my-session",
-				"/mount/point",
-				"-f",
-				"--auto-unmount",
-			])
+			expect(cmd[0]).toBe("sh")
+			expect(cmd[1]).toBe("-c")
+			expect(cmd[2]).toContain("agentfs mount my-session /mount/point")
+			expect(cmd[2]).toContain("-f --auto-unmount")
+			expect(cmd[2]).toContain("kill -0 12345") // monitors parent PID
+			expect(cmd[2]).toContain("fusermount -u /mount/point") // cleanup on parent death
 		})
 
-		test("includes session ID and mount path in correct positions", () => {
-			const cmd = buildMountCommand("test-session", "/home/user/.agentfs/mounts/test")
+		test("includes correct parent PID in watchdog script", () => {
+			const cmd = buildMountCommand("test-session", "/home/user/.agentfs/mounts/test", 99999)
 
-			expect(cmd[0]).toBe("agentfs")
-			expect(cmd[1]).toBe("mount")
-			expect(cmd[2]).toBe("test-session")
-			expect(cmd[3]).toBe("/home/user/.agentfs/mounts/test")
+			expect(cmd[2]).toContain("kill -0 99999")
 		})
 
 		test("handles paths with spaces", () => {
-			const cmd = buildMountCommand("session", "/path/with spaces/mount")
+			const cmd = buildMountCommand("session", "/path/with spaces/mount", 12345)
 
-			expect(cmd[3]).toBe("/path/with spaces/mount")
+			expect(cmd[2]).toContain("/path/with spaces/mount")
 		})
 	})
 
