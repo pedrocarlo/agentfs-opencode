@@ -20,32 +20,117 @@ const PATH_TOOLS: Record<string, string[]> = {
 }
 
 /**
- * Rewrite a path from project directory to mount directory.
- * Returns the original path if it doesn't match the project path exactly.
- * Only rewrites if path IS the project path or is a subpath (has / after project path).
+ * Normalize a path by:
+ * - Ensuring it's absolute (starts with /)
+ * - Removing trailing slashes (except for root)
+ * - Resolving . and .. segments
  */
-function rewritePath(path: string, projectPath: string, mountPath: string): string {
-	if (path === projectPath) {
-		return mountPath
+function normalizePath(path: string): string {
+	if (!path || path === "/") return "/"
+
+	// Remove trailing slash unless it's root
+	let normalized = path.endsWith("/") && path !== "/" ? path.slice(0, -1) : path
+
+	// Ensure absolute path
+	if (!normalized.startsWith("/")) {
+		normalized = `/${normalized}`
 	}
-	// Ensure we match complete path components (projectPath + /)
-	const prefix = projectPath.endsWith("/") ? projectPath : `${projectPath}/`
-	if (path.startsWith(prefix)) {
-		return mountPath + path.slice(projectPath.length)
+
+	// Resolve . and .. segments
+	const parts = normalized.split("/").filter((p) => p && p !== ".")
+	const resolved: string[] = []
+
+	for (const part of parts) {
+		if (part === "..") {
+			resolved.pop()
+		} else {
+			resolved.push(part)
+		}
 	}
-	return path
+
+	return `/${resolved.join("/")}` || "/"
 }
 
 /**
- * Rewrite paths in a string (command, output, etc).
+ * Convert a project path to a mount path.
+ * E.g., /home/user/project/src/file.ts -> /mnt/session/src/file.ts
+ */
+function toMountPath(virtualPath: string, projectPath: string, mountPath: string): string {
+	const normalized = normalizePath(virtualPath)
+	const normalizedProject = normalizePath(projectPath)
+	const normalizedMount = normalizePath(mountPath)
+
+	// If project is root, just prepend mount path
+	if (normalizedProject === "/") {
+		return normalizedMount === "/"
+			? normalized
+			: `${normalizedMount}${normalized === "/" ? "" : normalized}`
+	}
+
+	// Path exactly matches project path
+	if (normalized === normalizedProject) {
+		return normalizedMount
+	}
+
+	// Path is under project path
+	if (normalized.startsWith(`${normalizedProject}/`)) {
+		const relativePath = normalized.slice(normalizedProject.length)
+		return normalizedMount === "/" ? relativePath : `${normalizedMount}${relativePath}`
+	}
+
+	// Path is outside project - return unchanged
+	return normalized
+}
+
+/**
+ * Convert a mount path back to a project path.
+ * E.g., /mnt/session/src/file.ts -> /home/user/project/src/file.ts
+ */
+function toProjectPath(agentPath: string, projectPath: string, mountPath: string): string {
+	const normalized = normalizePath(agentPath)
+	const normalizedProject = normalizePath(projectPath)
+	const normalizedMount = normalizePath(mountPath)
+
+	// If mount is root, just prepend project path
+	if (normalizedMount === "/") {
+		return normalizedProject === "/"
+			? normalized
+			: `${normalizedProject}${normalized === "/" ? "" : normalized}`
+	}
+
+	// Path exactly matches mount path
+	if (normalized === normalizedMount) {
+		return normalizedProject
+	}
+
+	// Path is under mount path
+	if (normalized.startsWith(`${normalizedMount}/`)) {
+		const relativePath = normalized.slice(normalizedMount.length)
+		return normalizedProject === "/" ? relativePath : `${normalizedProject}${relativePath}`
+	}
+
+	// Path is outside mount - return unchanged
+	return normalized
+}
+
+/**
+ * Rewrite all occurrences of a path prefix in a string.
+ * Used for bash commands and tool output where paths may appear anywhere.
  * Only rewrites complete path matches (followed by /, space, quote, or end of string).
  */
 function rewritePathsInString(text: string, fromPath: string, toPath: string): string {
+	const normalizedFrom = normalizePath(fromPath)
+	const normalizedTo = normalizePath(toPath)
+
+	if (normalizedFrom === normalizedTo) {
+		return text
+	}
+
 	// Escape special regex characters in fromPath
-	const escaped = fromPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+	const escaped = normalizedFrom.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 	// Match fromPath only when followed by /, space, quote, or end of string
 	// This prevents matching /myapp2 when looking for /myapp
-	return text.replace(new RegExp(`${escaped}(?=/|\\s|"|'|$)`, "g"), toPath)
+	return text.replace(new RegExp(`${escaped}(?=/|\\s|"|'|$)`, "g"), normalizedTo)
 }
 
 /**
@@ -113,6 +198,7 @@ export function createPathRewriteHandler(config: AgentFSConfig, client?: Logging
 			}
 
 			if (toolLower === "bash" && field === "command") {
+				// For bash commands, rewrite all path occurrences in the string
 				const rewritten = rewritePathsInString(value, projectPath, mountPath)
 				if (rewritten !== value) {
 					log(client, "info", `Rewriting Bash command paths`, {
@@ -122,7 +208,8 @@ export function createPathRewriteHandler(config: AgentFSConfig, client?: Logging
 					output.args[field] = rewritten
 				}
 			} else {
-				const rewritten = rewritePath(value, projectPath, mountPath)
+				// For file path arguments, use proper path conversion
+				const rewritten = toMountPath(value, projectPath, mountPath)
 				if (rewritten !== value) {
 					log(client, "info", `Rewriting path`, {
 						tool: input.tool,
@@ -186,3 +273,6 @@ export function createPathRewriteAfterHandler(config: AgentFSConfig, client?: Lo
 		}
 	}
 }
+
+// Export for testing
+export { normalizePath, toMountPath, toProjectPath, rewritePathsInString }
