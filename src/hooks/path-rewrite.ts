@@ -114,9 +114,18 @@ function toProjectPath(agentPath: string, projectPath: string, mountPath: string
 }
 
 /**
+ * Extract the .agentfs/mounts/{sessionId} part from a mount path.
+ * This is used to match relative paths that contain this pattern.
+ */
+function extractAgentFSPattern(mountPath: string): string | null {
+	const match = mountPath.match(/\.agentfs\/mounts\/[^/]+/)
+	return match ? match[0] : null
+}
+
+/**
  * Rewrite all occurrences of a path prefix in a string.
- * Used for bash commands and tool output where paths may appear anywhere.
- * Only rewrites complete path matches (followed by /, space, quote, or end of string).
+ * Used for bash commands and tool args where paths may appear anywhere.
+ * Only rewrites absolute path matches.
  */
 function rewritePathsInString(text: string, fromPath: string, toPath: string): string {
 	const normalizedFrom = normalizePath(fromPath)
@@ -131,6 +140,34 @@ function rewritePathsInString(text: string, fromPath: string, toPath: string): s
 	// Match fromPath only when followed by /, space, quote, or end of string
 	// This prevents matching /myapp2 when looking for /myapp
 	return text.replace(new RegExp(`${escaped}(?=/|\\s|"|'|$)`, "g"), normalizedTo)
+}
+
+/**
+ * Rewrite paths in tool output, handling both absolute and relative paths.
+ * This is used in the after hook to convert mount paths back to project paths.
+ * Handles relative paths like ../../.agentfs/mounts/ses_xxx/file.txt -> ./file.txt
+ */
+function rewritePathsInOutput(text: string, mountPath: string, projectPath: string): string {
+	// First, rewrite absolute paths
+	let result = rewritePathsInString(text, mountPath, projectPath)
+
+	// Then, rewrite relative paths containing .agentfs/mounts/{sessionId}/
+	// OpenCode may output paths relative to the project directory like:
+	// ../../.agentfs/mounts/ses_xxx/file.txt -> ./file.txt
+	const agentFSPattern = extractAgentFSPattern(mountPath)
+	if (agentFSPattern) {
+		const escapedPattern = agentFSPattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+		// Match: one or more ../ prefixes, then .agentfs/mounts/{session}/
+		// Replace with ./ to make it relative to project
+		const relativePattern = new RegExp(`(?:\\.\\.\\/)+${escapedPattern}\\/`, "g")
+		result = result.replace(relativePattern, "./")
+
+		// Also handle ./ prefix (current dir relative)
+		const currentDirPattern = new RegExp(`\\.\\/${escapedPattern}\\/`, "g")
+		result = result.replace(currentDirPattern, "./")
+	}
+
+	return result
 }
 
 /**
@@ -259,8 +296,9 @@ export function createPathRewriteAfterHandler(config: AgentFSConfig, client?: Lo
 		const mountPath = session.mount.mountPath
 
 		// Rewrite mount paths back to project paths in the output
+		// Uses rewritePathsInOutput which handles both absolute and relative paths
 		if (output.output) {
-			const rewritten = rewritePathsInString(output.output, mountPath, projectPath)
+			const rewritten = rewritePathsInOutput(output.output, mountPath, projectPath)
 			if (rewritten !== output.output) {
 				log(client, "info", `Rewriting output paths`, {
 					tool: input.tool,
@@ -273,7 +311,7 @@ export function createPathRewriteAfterHandler(config: AgentFSConfig, client?: Lo
 
 		// Also rewrite in title if present
 		if (output.title) {
-			const rewritten = rewritePathsInString(output.title, mountPath, projectPath)
+			const rewritten = rewritePathsInOutput(output.title, mountPath, projectPath)
 			log(client, "debug", `Path rewrite AFTER title check`, {
 				original: output.title,
 				rewritten,
@@ -292,4 +330,11 @@ export function createPathRewriteAfterHandler(config: AgentFSConfig, client?: Lo
 }
 
 // Export for testing
-export { normalizePath, toMountPath, toProjectPath, rewritePathsInString }
+export {
+	normalizePath,
+	toMountPath,
+	toProjectPath,
+	rewritePathsInString,
+	rewritePathsInOutput,
+	extractAgentFSPattern,
+}

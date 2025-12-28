@@ -1,10 +1,36 @@
 import { describe, expect, test } from "bun:test"
 import {
+	extractAgentFSPattern,
 	normalizePath,
+	rewritePathsInOutput,
 	rewritePathsInString,
 	toMountPath,
 	toProjectPath,
 } from "../src/hooks/path-rewrite"
+
+describe("extractAgentFSPattern", () => {
+	test("extracts pattern from typical mount path", () => {
+		expect(extractAgentFSPattern("/home/user/.agentfs/mounts/ses_abc123")).toBe(
+			".agentfs/mounts/ses_abc123",
+		)
+	})
+
+	test("extracts pattern from path with trailing content", () => {
+		expect(extractAgentFSPattern("/home/user/.agentfs/mounts/session123/extra")).toBe(
+			".agentfs/mounts/session123",
+		)
+	})
+
+	test("returns null for path without agentfs pattern", () => {
+		expect(extractAgentFSPattern("/home/user/project")).toBe(null)
+	})
+
+	test("handles complex session IDs", () => {
+		expect(extractAgentFSPattern("/root/.agentfs/mounts/ses_499a883ccffeY9utG0x5AWbipQ")).toBe(
+			".agentfs/mounts/ses_499a883ccffeY9utG0x5AWbipQ",
+		)
+	})
+})
 
 describe("normalizePath", () => {
 	test("returns / for empty string", () => {
@@ -200,6 +226,158 @@ describe("rewritePathsInString", () => {
 		expect(rewritePathsInString(command, projectPath, mountPath)).toBe(
 			`cat "/mnt/session/file with spaces.ts"`,
 		)
+	})
+})
+
+describe("edge cases - relative paths and special formats", () => {
+	const projectPath = "/home/ssm-user/my-project"
+	const mountPath = "/home/ssm-user/.agentfs/mounts/ses_499a883ccffeY9utG0x5AWbipQ"
+
+	describe("normalizePath with relative paths", () => {
+		test("handles relative path starting with ..", () => {
+			// Relative paths get / prepended, then .. resolved
+			expect(normalizePath("../../.agentfs/mounts/ses_xxx/poem.txt")).toBe(
+				"/.agentfs/mounts/ses_xxx/poem.txt",
+			)
+		})
+
+		test("handles relative path starting with .", () => {
+			expect(normalizePath("./src/file.ts")).toBe("/src/file.ts")
+		})
+
+		test("handles deeply nested relative paths", () => {
+			expect(normalizePath("../../../.agentfs/mounts/session/file.txt")).toBe(
+				"/.agentfs/mounts/session/file.txt",
+			)
+		})
+	})
+
+	describe("toProjectPath with realistic mount paths", () => {
+		test("converts agentfs mount path to project path", () => {
+			expect(toProjectPath(`${mountPath}/poem.txt`, projectPath, mountPath)).toBe(
+				"/home/ssm-user/my-project/poem.txt",
+			)
+		})
+
+		test("converts agentfs mount path with nested directories", () => {
+			expect(toProjectPath(`${mountPath}/src/components/Button.tsx`, projectPath, mountPath)).toBe(
+				"/home/ssm-user/my-project/src/components/Button.tsx",
+			)
+		})
+
+		test("handles mount path in home directory", () => {
+			const homeMountPath = "/home/user/.agentfs/mounts/session123"
+			const homeProjectPath = "/home/user/projects/myapp"
+			expect(toProjectPath(`${homeMountPath}/file.ts`, homeProjectPath, homeMountPath)).toBe(
+				"/home/user/projects/myapp/file.ts",
+			)
+		})
+	})
+
+	describe("rewritePathsInString with mount paths in output", () => {
+		test("rewrites mount path in tool output title", () => {
+			const title = `Wrote ${mountPath}/poem.txt`
+			expect(rewritePathsInString(title, mountPath, projectPath)).toBe(
+				`Wrote ${projectPath}/poem.txt`,
+			)
+		})
+
+		test("rewrites mount path in error messages", () => {
+			const error = `Error: File not found: ${mountPath}/missing.txt`
+			expect(rewritePathsInString(error, mountPath, projectPath)).toBe(
+				`Error: File not found: ${projectPath}/missing.txt`,
+			)
+		})
+
+		test("rewrites multiple mount paths in output", () => {
+			const output = `Copied ${mountPath}/a.txt to ${mountPath}/b.txt`
+			expect(rewritePathsInString(output, mountPath, projectPath)).toBe(
+				`Copied ${projectPath}/a.txt to ${projectPath}/b.txt`,
+			)
+		})
+
+		test("rewrites mount path at end of line", () => {
+			const output = `Working directory: ${mountPath}`
+			expect(rewritePathsInString(output, mountPath, projectPath)).toBe(
+				`Working directory: ${projectPath}`,
+			)
+		})
+
+		test("rewritePathsInString does NOT rewrite relative paths", () => {
+			// rewritePathsInString only handles absolute paths (used in before hook)
+			const output = `Wrote ../../.agentfs/mounts/ses_499a883ccffeY9utG0x5AWbipQ/poem.txt`
+			expect(rewritePathsInString(output, mountPath, projectPath)).toBe(output)
+		})
+
+		test("rewritePathsInOutput rewrites relative paths with ../ prefix", () => {
+			// rewritePathsInOutput handles both absolute and relative paths (used in after hook)
+			const output = `Wrote ../../.agentfs/mounts/ses_499a883ccffeY9utG0x5AWbipQ/poem.txt`
+			expect(rewritePathsInOutput(output, mountPath, projectPath)).toBe(`Wrote ./poem.txt`)
+		})
+
+		test("rewritePathsInOutput rewrites relative paths with multiple ../ prefixes", () => {
+			const output = `Wrote ../../../.agentfs/mounts/ses_499a883ccffeY9utG0x5AWbipQ/src/file.ts`
+			expect(rewritePathsInOutput(output, mountPath, projectPath)).toBe(`Wrote ./src/file.ts`)
+		})
+
+		test("rewritePathsInOutput rewrites relative paths with ./ prefix", () => {
+			const output = `Wrote ./.agentfs/mounts/ses_499a883ccffeY9utG0x5AWbipQ/poem.txt`
+			expect(rewritePathsInOutput(output, mountPath, projectPath)).toBe(`Wrote ./poem.txt`)
+		})
+
+		test("rewritePathsInOutput also rewrites absolute paths", () => {
+			const output = `Wrote ${mountPath}/poem.txt`
+			expect(rewritePathsInOutput(output, mountPath, projectPath)).toBe(
+				`Wrote ${projectPath}/poem.txt`,
+			)
+		})
+
+		test("handles paths with session IDs", () => {
+			const sessionMount = "/home/ssm-user/.agentfs/mounts/ses_499a883ccffeY9utG0x5AWbipQ"
+			const output = `Read ${sessionMount}/config.json`
+			expect(rewritePathsInString(output, sessionMount, projectPath)).toBe(
+				`Read ${projectPath}/config.json`,
+			)
+		})
+
+		test("handles multiline output", () => {
+			const output = `Files changed:
+  ${mountPath}/src/index.ts
+  ${mountPath}/src/utils.ts
+  ${mountPath}/package.json`
+			expect(rewritePathsInString(output, mountPath, projectPath)).toBe(
+				`Files changed:
+  ${projectPath}/src/index.ts
+  ${projectPath}/src/utils.ts
+  ${projectPath}/package.json`,
+			)
+		})
+	})
+
+	describe("path matching edge cases", () => {
+		test("does not match mount path as substring of longer path", () => {
+			const longerMount = `${mountPath}_extra`
+			const output = `Path: ${longerMount}/file.txt`
+			// Should NOT match because mountPath is a prefix of a longer path
+			expect(rewritePathsInString(output, mountPath, projectPath)).toBe(output)
+		})
+
+		test("matches mount path followed by slash", () => {
+			const output = `${mountPath}/file.txt`
+			expect(rewritePathsInString(output, mountPath, projectPath)).toBe(`${projectPath}/file.txt`)
+		})
+
+		test("matches mount path followed by space", () => {
+			const output = `cd ${mountPath} && ls`
+			expect(rewritePathsInString(output, mountPath, projectPath)).toBe(`cd ${projectPath} && ls`)
+		})
+
+		test("matches mount path in quotes", () => {
+			const output = `cat "${mountPath}/file.txt"`
+			expect(rewritePathsInString(output, mountPath, projectPath)).toBe(
+				`cat "${projectPath}/file.txt"`,
+			)
+		})
 	})
 })
 
