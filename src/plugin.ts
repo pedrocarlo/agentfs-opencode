@@ -52,7 +52,7 @@ export const AgentFSPlugin: Plugin = async (input) => {
 		// Rewrite paths from project dir to mount dir (mutates output.args)
 		pathRewriteHandler(input, output)
 		// Then track the tool call with rewritten args
-		await toolTrackingBefore(input, output)
+		// await toolTrackingBefore(input, output)
 	}
 
 	const hooks: Hooks = {
