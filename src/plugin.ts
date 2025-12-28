@@ -1,6 +1,7 @@
 import type { Hooks, Plugin } from "@opencode-ai/plugin"
 import { parseConfig } from "./config/schema"
 import {
+	createPathRewriteHandler,
 	createSessionHandler,
 	createToolExecuteAfterHandler,
 	createToolExecuteBeforeHandler,
@@ -34,14 +35,31 @@ export const AgentFSPlugin: Plugin = async (input) => {
 	// Create hook handlers
 	log(loggingClient, "debug", `Creating hook handlers`)
 	const sessionHandler = createSessionHandler(config, directory, client)
-	const toolExecuteBefore = createToolExecuteBeforeHandler(config, loggingClient)
+	const pathRewriteHandler = createPathRewriteHandler(config, loggingClient)
+	const toolTrackingBefore = createToolExecuteBeforeHandler(config, loggingClient)
 	const toolExecuteAfter = createToolExecuteAfterHandler(config, loggingClient)
+
+	// Combined before handler: path rewrite runs first, then tool tracking
+	const toolExecuteBefore = async (
+		input: { tool: string; sessionID: string; callID: string },
+		output: { args: Record<string, unknown> },
+	) => {
+		log(loggingClient, "info", `tool.execute.before called`, {
+			tool: input.tool,
+			sessionID: input.sessionID,
+			callID: input.callID,
+		})
+		// Rewrite paths from project dir to mount dir (mutates output.args)
+		pathRewriteHandler(input, output)
+		// Then track the tool call with rewritten args
+		await toolTrackingBefore(input, output)
+	}
 
 	const hooks: Hooks = {
 		// Event handler for session lifecycle
 		event: sessionHandler,
 
-		// Tool tracking hooks
+		// Tool hooks: path rewrite + tracking
 		"tool.execute.before": toolExecuteBefore,
 		"tool.execute.after": toolExecuteAfter,
 	}
