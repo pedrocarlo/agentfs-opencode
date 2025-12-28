@@ -39,13 +39,6 @@ export function createSessionHandler(
 	return async (input: { event: Event }) => {
 		const { event } = input
 
-		// Log ALL events for debugging
-		log(loggingClient, "info", `EVENT received: ${event.type}`, {
-			eventType: event.type,
-			eventFields: Object.keys(event),
-			fullEvent: JSON.stringify(event, null, 2),
-		})
-
 		// Handle session.created event
 		if (event.type === "session.created") {
 			const sessionId = event.properties.info.id

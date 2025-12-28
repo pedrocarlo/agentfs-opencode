@@ -147,24 +147,64 @@ function rewritePathsInString(text: string, fromPath: string, toPath: string): s
  * This is used in the after hook to convert mount paths back to project paths.
  * Handles relative paths like ../../.agentfs/mounts/ses_xxx/file.txt -> ./file.txt
  */
-function rewritePathsInOutput(text: string, mountPath: string, projectPath: string): string {
+function rewritePathsInOutput(
+	text: string,
+	mountPath: string,
+	projectPath: string,
+	client?: LoggingClient,
+): string {
+	log(client, "debug", `rewritePathsInOutput called`, {
+		textLength: text.length,
+		textPreview: text.slice(0, 200),
+		mountPath,
+		projectPath,
+	})
+
 	// First, rewrite absolute paths
-	let result = rewritePathsInString(text, mountPath, projectPath)
+	const afterAbsolute = rewritePathsInString(text, mountPath, projectPath)
+	if (afterAbsolute !== text) {
+		log(client, "info", `Rewrote absolute paths in output`, {
+			before: text.slice(0, 200),
+			after: afterAbsolute.slice(0, 200),
+		})
+	}
+
+	let result = afterAbsolute
 
 	// Then, rewrite relative paths containing .agentfs/mounts/{sessionId}/
 	// OpenCode may output paths relative to the project directory like:
 	// ../../.agentfs/mounts/ses_xxx/file.txt -> ./file.txt
 	const agentFSPattern = extractAgentFSPattern(mountPath)
+	log(client, "debug", `extractAgentFSPattern result`, { agentFSPattern, mountPath })
+
 	if (agentFSPattern) {
 		const escapedPattern = agentFSPattern.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 		// Match: one or more ../ prefixes, then .agentfs/mounts/{session}/
 		// Replace with ./ to make it relative to project
 		const relativePattern = new RegExp(`(?:\\.\\.\\/)+${escapedPattern}\\/`, "g")
-		result = result.replace(relativePattern, "./")
+		const afterRelative = result.replace(relativePattern, "./")
+
+		if (afterRelative !== result) {
+			log(client, "info", `Rewrote relative ../ paths in output`, {
+				pattern: relativePattern.source,
+				before: result.slice(0, 200),
+				after: afterRelative.slice(0, 200),
+			})
+			result = afterRelative
+		}
 
 		// Also handle ./ prefix (current dir relative)
 		const currentDirPattern = new RegExp(`\\.\\/${escapedPattern}\\/`, "g")
-		result = result.replace(currentDirPattern, "./")
+		const afterCurrentDir = result.replace(currentDirPattern, "./")
+
+		if (afterCurrentDir !== result) {
+			log(client, "info", `Rewrote relative ./ paths in output`, {
+				pattern: currentDirPattern.source,
+				before: result.slice(0, 200),
+				after: afterCurrentDir.slice(0, 200),
+			})
+			result = afterCurrentDir
+		}
 	}
 
 	return result
@@ -180,8 +220,8 @@ export function createPathRewriteHandler(config: AgentFSConfig, client?: Logging
 		output: { args: Record<string, unknown> },
 	) => {
 		log(client, "debug", `Path rewrite hook called`, {
-			tool: input.tool,
-			sessionID: input.sessionID,
+			input,
+			output,
 			isLinux: IS_LINUX,
 			autoMount: config.autoMount,
 		})
@@ -271,10 +311,8 @@ export function createPathRewriteAfterHandler(config: AgentFSConfig, client?: Lo
 		output: { title: string; output: string; metadata: unknown },
 	) => {
 		log(client, "info", `Path rewrite AFTER hook called`, {
-			tool: input.tool,
-			sessionID: input.sessionID,
-			hasTitle: !!output.title,
-			titlePreview: output.title?.slice(0, 100),
+			input,
+			output,
 			isLinux: IS_LINUX,
 			autoMount: config.autoMount,
 		})
@@ -298,31 +336,16 @@ export function createPathRewriteAfterHandler(config: AgentFSConfig, client?: Lo
 		// Rewrite mount paths back to project paths in the output
 		// Uses rewritePathsInOutput which handles both absolute and relative paths
 		if (output.output) {
-			const rewritten = rewritePathsInOutput(output.output, mountPath, projectPath)
+			const rewritten = rewritePathsInOutput(output.output, mountPath, projectPath, client)
 			if (rewritten !== output.output) {
-				log(client, "info", `Rewriting output paths`, {
-					tool: input.tool,
-					from: mountPath,
-					to: projectPath,
-				})
 				output.output = rewritten
 			}
 		}
 
 		// Also rewrite in title if present
 		if (output.title) {
-			const rewritten = rewritePathsInOutput(output.title, mountPath, projectPath)
-			log(client, "debug", `Path rewrite AFTER title check`, {
-				original: output.title,
-				rewritten,
-				changed: rewritten !== output.title,
-			})
+			const rewritten = rewritePathsInOutput(output.title, mountPath, projectPath, client)
 			if (rewritten !== output.title) {
-				log(client, "info", `Rewriting title paths`, {
-					tool: input.tool,
-					from: mountPath,
-					to: projectPath,
-				})
 				output.title = rewritten
 			}
 		}

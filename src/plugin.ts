@@ -42,11 +42,7 @@ export const AgentFSPlugin: Plugin = async (input) => {
 		input: { tool: string; sessionID: string; callID: string },
 		output: { args: Record<string, unknown> },
 	) => {
-		log(loggingClient, "info", `tool.execute.before called`, {
-			tool: input.tool,
-			sessionID: input.sessionID,
-			callID: input.callID,
-		})
+		log(loggingClient, "debug", `tool.execute.before called`, input)
 		// Rewrite paths from project dir to mount dir (mutates output.args)
 		pathRewriteBeforeHandler(input, output)
 	}
@@ -56,11 +52,7 @@ export const AgentFSPlugin: Plugin = async (input) => {
 		input: { tool: string; sessionID: string; callID: string },
 		output: { title: string; output: string; metadata: unknown },
 	) => {
-		log(loggingClient, "debug", `tool.execute.after called`, {
-			tool: input.tool,
-			sessionID: input.sessionID,
-			callID: input.callID,
-		})
+		log(loggingClient, "debug", `tool.execute.after called`, input)
 		// Rewrite paths from mount dir back to project dir (mutates output)
 		pathRewriteAfterHandler(input, output)
 	}

@@ -333,6 +333,14 @@ describe("edge cases - relative paths and special formats", () => {
 		})
 
 		test("handles paths with session IDs", () => {
+			const sessionMount = "/home/ssm-user/.agentfs/mounts/ses_4999edea8ffev9dvxfDZQ5hGQJ"
+			const output = `Read ${sessionMount}/poem.txt`
+			expect(rewritePathsInOutput(output, sessionMount, projectPath)).toBe(
+				`Read ${projectPath}/poem.txt`,
+			)
+		})
+
+		test("handles paths with session IDs", () => {
 			const sessionMount = "/home/ssm-user/.agentfs/mounts/ses_499a883ccffeY9utG0x5AWbipQ"
 			const output = `Read ${sessionMount}/config.json`
 			expect(rewritePathsInString(output, sessionMount, projectPath)).toBe(
