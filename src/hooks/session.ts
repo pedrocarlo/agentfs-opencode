@@ -13,6 +13,10 @@ import { type LoggingClient, log } from "../log"
 
 const IS_LINUX = platform() === "linux"
 
+// Track sessions currently being initialized to prevent duplicate concurrent attempts
+// This is needed because the plugin may be loaded multiple times and receive duplicate events
+const initializingSessions = new Set<string>()
+
 function showError(client: OpencodeClient, title: string, message: string) {
 	client.tui.showToast({
 		body: {
@@ -40,6 +44,15 @@ export function createSessionHandler(
 			const sessionId = event.properties.info.id
 			if (!sessionId) return
 
+			// Check if this session is already being initialized (duplicate event)
+			if (initializingSessions.has(sessionId) || getSession(sessionId)) {
+				log(loggingClient, "debug", `Skipping duplicate session.created event for ${sessionId}`)
+				return
+			}
+
+			// Mark session as initializing to prevent concurrent attempts
+			initializingSessions.add(sessionId)
+
 			log(loggingClient, "info", `Session created: ${sessionId}`, { projectPath })
 
 			try {
@@ -53,12 +66,14 @@ export function createSessionHandler(
 
 				// Auto-mount if configured (Linux only)
 				// The CLI init + mount must happen BEFORE opening the SDK database
+				let mountSucceeded = false
 				if (config.autoMount && IS_LINUX) {
 					log(loggingClient, "debug", `Auto-mount enabled, attempting to mount overlay`)
 					try {
 						// mountOverlay runs: agentfs init --base <projectPath> && agentfs mount
 						await mountOverlay(context.mount, projectPath, loggingClient)
 						log(loggingClient, "info", `Overlay mounted successfully at ${context.mount.mountPath}`)
+						mountSucceeded = true
 					} catch (err) {
 						const errorMessage = err instanceof Error ? err.message : String(err)
 						context.mount.error = errorMessage
@@ -74,19 +89,24 @@ export function createSessionHandler(
 				}
 
 				// Open the database AFTER CLI operations are complete
-				log(loggingClient, "debug", `Opening database for session ${sessionId}`)
-				await openDatabase(sessionId)
-				log(loggingClient, "debug", `Database opened successfully`)
+				// Skip if mount succeeded - the FUSE daemon holds the database lock
+				if (mountSucceeded) {
+					log(loggingClient, "debug", `Skipping SDK database open - FUSE daemon holds the lock`)
+				} else {
+					log(loggingClient, "debug", `Opening database for session ${sessionId}`)
+					await openDatabase(sessionId)
+					log(loggingClient, "debug", `Database opened successfully`)
 
-				// Store session metadata
-				if (context.agent) {
-					log(loggingClient, "debug", `Storing session metadata`)
-					if (context.mount.error) {
-						await context.agent.kv.set("session:mountError", context.mount.error)
+					// Store session metadata (only when SDK database is available)
+					if (context.agent) {
+						log(loggingClient, "debug", `Storing session metadata`)
+						if (context.mount.error) {
+							await context.agent.kv.set("session:mountError", context.mount.error)
+						}
+						await context.agent.kv.set("session:startedAt", Date.now())
+						await context.agent.kv.set("session:projectPath", projectPath)
+						log(loggingClient, "debug", `Session metadata stored`)
 					}
-					await context.agent.kv.set("session:startedAt", Date.now())
-					await context.agent.kv.set("session:projectPath", projectPath)
-					log(loggingClient, "debug", `Session metadata stored`)
 				}
 
 				log(loggingClient, "info", `Session ${sessionId} initialized successfully`)
@@ -94,6 +114,9 @@ export function createSessionHandler(
 				const errorMessage = err instanceof Error ? err.message : String(err)
 				log(loggingClient, "error", `AgentFS Session Failed: ${errorMessage}`)
 				showError(client, "AgentFS Session Failed", errorMessage)
+			} finally {
+				// Always remove from initializing set when done
+				initializingSessions.delete(sessionId)
 			}
 		}
 

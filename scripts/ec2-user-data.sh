@@ -10,8 +10,20 @@ echo "=== Starting OpenCode setup ==="
 apt-get update -y
 apt-get upgrade -y
 
+# Install growpart for partition resizing
+apt-get install -y cloud-guest-utils
+
+# Resize root partition to use full EBS volume
+ROOT_DEVICE=$(lsblk -no PKNAME $(findmnt -n -o SOURCE /))
+PARTITION_NUM=$(lsblk -no KNAME $(findmnt -n -o SOURCE /) | grep -o '[0-9]*$')
+sudo growpart /dev/${ROOT_DEVICE} ${PARTITION_NUM} || true
+sudo resize2fs $(findmnt -n -o SOURCE /) || true
+
+echo "Root filesystem resized to use full EBS volume"
+df -h /
+
 # Install FUSE and development tools
-apt-get install -y fuse3 libfuse3-dev git unzip
+apt-get install -y fuse3 libfuse3-dev git unzip build-essential gh pkg-config
 
 # Enable FUSE
 modprobe fuse
@@ -55,10 +67,12 @@ mkdir -p ~/.config/nushell
 cat >> ~/.config/nushell/config.nu << 'NUCONFIG'
 # Bun
 $env.BUN_INSTALL = $"($env.HOME)/.bun"
-$env.PATH = ($env.PATH | split row (char esep) | prepend $"($env.BUN_INSTALL)/bin" | uniq)
+$env.PATH ++= [$"($env.BUN_INSTALL)/bin"]
+
+$env.PATH ++= ["~/.local/bin"]
 
 # Cargo (for AgentFS)
-$env.PATH = ($env.PATH | split row (char esep) | prepend $"($env.HOME)/.cargo/bin" | uniq)
+$env.PATH ++= [$"($env.HOME)/.cargo/bin"]
 NUCONFIG
 
 # Install OpenCode globally
@@ -81,6 +95,9 @@ cd agentfs-opencode
 
 echo "=== OpenCode setup complete ==="
 BUNEOF
+
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+curl -fsSL https://claude.ai/install.sh | bash
 
 # Mark setup as complete
 touch /tmp/opencode-setup-complete

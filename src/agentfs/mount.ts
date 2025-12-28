@@ -18,7 +18,7 @@ export function buildInitCommand(sessionId: string, basePath: string): string[] 
  * Exported for testing.
  */
 export function buildMountCommand(sessionId: string, mountPath: string): string[] {
-	return ["agentfs", "mount", sessionId, mountPath]
+	return ["agentfs", "mount", sessionId, mountPath, "--auto-unmount"]
 }
 
 export async function isAgentFSInstalled(): Promise<boolean> {
@@ -112,20 +112,27 @@ async function verifyMount(
 	proc: Subprocess,
 	client?: LoggingClient,
 ): Promise<string | undefined> {
-	// Check if process exited prematurely
+	// Check if process exited with an error (non-zero exit code)
 	if (proc.exitCode !== null) {
 		let stderrText = ""
 		if (proc.stderr && typeof proc.stderr !== "number") {
 			stderrText = await new Response(proc.stderr).text()
 		}
-		const error = `Mount process exited with code ${proc.exitCode}: ${stderrText.trim() || "unknown error"}`
-		log(client, "debug", `Mount process exited prematurely`, {
-			exitCode: proc.exitCode,
-			stderr: stderrText,
-		})
-		return error
+
+		// Exit code 0 is success - daemon may have forked and parent exited
+		// Continue to verify the mount point is actually accessible
+		if (proc.exitCode !== 0) {
+			const error = `Mount process exited with code ${proc.exitCode}: ${stderrText.trim() || "unknown error"}`
+			log(client, "debug", `Mount process failed`, {
+				exitCode: proc.exitCode,
+				stderr: stderrText,
+			})
+			return error
+		}
+		log(client, "debug", `Mount process exited with code 0 (daemon likely forked)`)
+	} else {
+		log(client, "debug", `Mount process still running`)
 	}
-	log(client, "debug", `Mount process still running`)
 
 	// Check if mount point is accessible
 	try {
