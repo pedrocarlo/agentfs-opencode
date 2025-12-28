@@ -1,29 +1,18 @@
 import type { Hooks, Plugin } from "@opencode-ai/plugin"
 import { parseConfig } from "./config/schema"
 import {
+	createPathRewriteAfterHandler,
+	createPathRewriteHandler,
 	createSessionHandler,
-	createToolExecuteAfterHandler,
-	createToolExecuteBeforeHandler,
 	registerCleanupHandlers,
 } from "./hooks"
 import { log } from "./log"
-import {
-	kvDelete,
-	kvGet,
-	kvList,
-	kvSet,
-	sandboxApply,
-	sandboxDiff,
-	sandboxStatus,
-	toolsList,
-	toolsStats,
-} from "./tools"
 
 export const AgentFSPlugin: Plugin = async (input) => {
 	const { project, directory, client } = input
 
 	// Cast client to include log method (SDK types may not be up to date)
-	const loggingClient = client as unknown as Parameters<typeof createToolExecuteBeforeHandler>[1]
+	const loggingClient = client as unknown as Parameters<typeof createPathRewriteHandler>[1]
 
 	log(loggingClient, "info", `Plugin initializing for project: ${directory}`)
 
@@ -45,34 +34,39 @@ export const AgentFSPlugin: Plugin = async (input) => {
 	// Create hook handlers
 	log(loggingClient, "debug", `Creating hook handlers`)
 	const sessionHandler = createSessionHandler(config, directory, client)
-	const toolExecuteBefore = createToolExecuteBeforeHandler(config, loggingClient)
-	const toolExecuteAfter = createToolExecuteAfterHandler(config, loggingClient)
+	const pathRewriteBeforeHandler = createPathRewriteHandler(config, loggingClient)
+	const pathRewriteAfterHandler = createPathRewriteAfterHandler(config, loggingClient)
+
+	// Combined before handler: path rewrite runs first
+	const toolExecuteBefore = async (
+		input: { tool: string; sessionID: string; callID: string },
+		output: { args: Record<string, unknown> },
+	) => {
+		log(loggingClient, "debug", `tool.execute.before called`, input)
+		// Rewrite paths from project dir to mount dir (mutates output.args)
+		pathRewriteBeforeHandler(input, output)
+	}
+
+	// Combined after handler: path rewrite to fix output paths
+	const toolExecuteAfter = async (
+		input: { tool: string; sessionID: string; callID: string },
+		output: { title: string; output: string; metadata: unknown },
+	) => {
+		log(loggingClient, "debug", `tool.execute.after called`, input)
+		// Rewrite paths from mount dir back to project dir (mutates output)
+		pathRewriteAfterHandler(input, output)
+	}
 
 	const hooks: Hooks = {
 		// Event handler for session lifecycle
 		event: sessionHandler,
 
-		// Tool tracking hooks
+		// Tool hooks: path rewrite + tracking
 		"tool.execute.before": toolExecuteBefore,
 		"tool.execute.after": toolExecuteAfter,
-
-		// Custom tools
-		tool: {
-			kv_get: kvGet,
-			kv_set: kvSet,
-			kv_delete: kvDelete,
-			kv_list: kvList,
-			sandbox_status: sandboxStatus,
-			sandbox_diff: sandboxDiff,
-			sandbox_apply: sandboxApply,
-			tools_list: toolsList,
-			tools_stats: toolsStats,
-		},
 	}
 
-	log(loggingClient, "info", `Plugin loaded successfully`, {
-		toolsRegistered: Object.keys(hooks.tool || {}).length,
-	})
+	log(loggingClient, "info", `Plugin loaded successfully`)
 
 	return hooks
 }
