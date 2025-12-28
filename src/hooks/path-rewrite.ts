@@ -7,11 +7,12 @@ const IS_LINUX = platform() === "linux"
 
 // Tools that have path arguments that should be rewritten
 // Keys are lowercase for case-insensitive matching
+// Parameter names must match OpenCode's actual schema (camelCase)
 const PATH_TOOLS: Record<string, string[]> = {
-	// File tools
-	read: ["file_path"],
-	write: ["file_path"],
-	edit: ["file_path"],
+	// File tools - OpenCode uses "filePath" (camelCase)
+	read: ["filePath"],
+	write: ["filePath"],
+	edit: ["filePath"],
 	glob: ["path"],
 	grep: ["path"],
 	// Bash - we rewrite paths in the command string
