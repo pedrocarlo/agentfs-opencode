@@ -6,6 +6,20 @@ import type { MountInfo } from "./types"
 const mountProcesses = new Map<string, Subprocess>()
 
 /**
+ * Kill all mount processes. Used for cleanup on process exit.
+ */
+export function killAllMountProcesses(): void {
+	for (const [sessionId, proc] of mountProcesses) {
+		try {
+			proc.kill()
+			mountProcesses.delete(sessionId)
+		} catch {
+			// Ignore errors - process may already be dead
+		}
+	}
+}
+
+/**
  * Build the command arguments for `agentfs init`.
  * Exported for testing.
  */
@@ -14,11 +28,27 @@ export function buildInitCommand(sessionId: string, basePath: string): string[] 
 }
 
 /**
- * Build the command arguments for `agentfs mount`.
- * Exported for testing.
+ * Build a shell command that runs agentfs mount with a watchdog.
+ * The watchdog monitors the parent PID and kills the mount when parent dies.
+ * This ensures cleanup even if exit handlers don't fire.
  */
-export function buildMountCommand(sessionId: string, mountPath: string): string[] {
-	return ["agentfs", "mount", sessionId, mountPath, "--auto-unmount"]
+export function buildMountCommand(
+	sessionId: string,
+	mountPath: string,
+	parentPid: number,
+): string[] {
+	// Shell script that:
+	// 1. Runs agentfs mount in background with -f (foreground mode for FUSE)
+	// 2. Monitors the parent PID
+	// 3. Kills the mount process when parent dies
+	const script = `
+agentfs mount ${sessionId} ${mountPath} -f --auto-unmount &
+MOUNT_PID=$!
+while kill -0 ${parentPid} 2>/dev/null; do sleep 1; done
+kill $MOUNT_PID 2>/dev/null
+fusermount -u ${mountPath} 2>/dev/null
+`
+	return ["sh", "-c", script]
 }
 
 export async function isAgentFSInstalled(): Promise<boolean> {
@@ -75,10 +105,12 @@ export async function mountOverlay(
 		log(client, "debug", `AgentFS initialized successfully`)
 	}
 
-	// Mount the overlay
+	// Mount the overlay with a watchdog that monitors parent PID
 	// Run from project root to find the .agentfs/ database
-	const mountCmd = buildMountCommand(mount.sessionId, mount.mountPath)
-	log(client, "debug", `Running mount command: ${mountCmd.join(" ")}`, { cwd: projectPath })
+	const mountCmd = buildMountCommand(mount.sessionId, mount.mountPath, process.pid)
+	log(client, "debug", `Running mount command with watchdog (parent PID: ${process.pid})`, {
+		cwd: projectPath,
+	})
 	const mountProc = spawn(mountCmd, {
 		stdout: "pipe",
 		stderr: "pipe",
