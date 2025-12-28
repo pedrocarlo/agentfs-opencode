@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { closeSession, createSessionContext, getSession } from "../src/agentfs/client"
 import type { AgentFSConfig } from "../src/config/schema"
 import {
+	containsMountPath,
 	createPathRewriteAfterHandler,
 	extractAgentFSPattern,
 	hasStringField,
@@ -515,6 +516,58 @@ describe("hasStringField", () => {
 	})
 })
 
+describe("containsMountPath", () => {
+	const mountPath = "/home/user/.agentfs/mounts/ses_abc123"
+
+	test("returns true for absolute mount path", () => {
+		expect(containsMountPath(`${mountPath}/file.txt`, mountPath)).toBe(true)
+	})
+
+	test("returns true for exact mount path", () => {
+		expect(containsMountPath(mountPath, mountPath)).toBe(true)
+	})
+
+	test("returns true for relative path with .agentfs/mounts pattern", () => {
+		expect(containsMountPath("../../.agentfs/mounts/ses_abc123/file.txt", mountPath)).toBe(true)
+	})
+
+	test("returns true for ./ relative path with .agentfs/mounts pattern", () => {
+		expect(containsMountPath("./.agentfs/mounts/ses_abc123/file.txt", mountPath)).toBe(true)
+	})
+
+	test("returns false for simple relative path", () => {
+		expect(containsMountPath("./file.txt", mountPath)).toBe(false)
+	})
+
+	test("returns false for simple filename", () => {
+		expect(containsMountPath("file.txt", mountPath)).toBe(false)
+	})
+
+	test("returns false for unrelated absolute path", () => {
+		expect(containsMountPath("/home/user/project/file.txt", mountPath)).toBe(false)
+	})
+
+	test("returns false for path with different session ID", () => {
+		expect(containsMountPath("/home/user/.agentfs/mounts/ses_different/file.txt", mountPath)).toBe(
+			false,
+		)
+	})
+
+	test("returns true for text containing mount path", () => {
+		expect(containsMountPath(`Wrote ${mountPath}/poem.txt`, mountPath)).toBe(true)
+	})
+
+	test("returns false for empty string", () => {
+		expect(containsMountPath("", mountPath)).toBe(false)
+	})
+
+	test("handles mount path without .agentfs pattern", () => {
+		const simpleMountPath = "/mnt/session123"
+		expect(containsMountPath(`${simpleMountPath}/file.txt`, simpleMountPath)).toBe(true)
+		expect(containsMountPath("./file.txt", simpleMountPath)).toBe(false)
+	})
+})
+
 describe("createPathRewriteAfterHandler", () => {
 	let testDir: string
 	let config: AgentFSConfig
@@ -747,5 +800,47 @@ describe("createPathRewriteAfterHandler", () => {
 
 		expect(output.title).toBe("/other/path/file.txt")
 		expect(output.metadata.filepath).toBe("/different/path/file.txt")
+	})
+
+	test("does not rewrite simple relative paths like ./file.txt", async () => {
+		const projectPath = "/home/user/project"
+		await createSessionContext(config, sessionId, projectPath)
+
+		const session = getSession(sessionId)!
+		session.mount.mounted = true
+
+		const handler = createPathRewriteAfterHandler(config)
+		const output = {
+			title: "./poem.txt",
+			output: "",
+			metadata: { filepath: "./src/index.ts" },
+		}
+
+		handler({ tool: "write", sessionID: sessionId, callID: "call-1" }, output)
+
+		// Simple relative paths should remain unchanged
+		expect(output.title).toBe("./poem.txt")
+		expect(output.metadata.filepath).toBe("./src/index.ts")
+	})
+
+	test("does not rewrite simple filenames", async () => {
+		const projectPath = "/home/user/project"
+		await createSessionContext(config, sessionId, projectPath)
+
+		const session = getSession(sessionId)!
+		session.mount.mounted = true
+
+		const handler = createPathRewriteAfterHandler(config)
+		const output = {
+			title: "poem.txt",
+			output: "",
+			metadata: { filepath: "src/index.ts" },
+		}
+
+		handler({ tool: "write", sessionID: sessionId, callID: "call-1" }, output)
+
+		// Simple filenames should remain unchanged
+		expect(output.title).toBe("poem.txt")
+		expect(output.metadata.filepath).toBe("src/index.ts")
 	})
 })

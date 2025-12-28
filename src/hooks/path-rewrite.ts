@@ -223,6 +223,25 @@ function hasStringField<K extends string>(
 }
 
 /**
+ * Check if a string contains a reference to the mount path.
+ * This includes absolute mount paths and relative paths with .agentfs/mounts pattern.
+ */
+function containsMountPath(text: string, mountPath: string): boolean {
+	// Check for absolute mount path
+	if (text.includes(mountPath)) {
+		return true
+	}
+
+	// Check for relative paths containing .agentfs/mounts/{sessionId}
+	const agentFSPattern = extractAgentFSPattern(mountPath)
+	if (agentFSPattern && text.includes(agentFSPattern)) {
+		return true
+	}
+
+	return false
+}
+
+/**
  * Create a hook that rewrites paths from project directory to mount directory.
  * This allows tools to operate on the sandboxed filesystem transparently.
  */
@@ -335,24 +354,26 @@ export function createPathRewriteAfterHandler(config: AgentFSConfig, client?: Lo
 		const projectPath = session.projectPath
 		const mountPath = session.mount.mountPath
 
-		// Also rewrite in title if present
-		if (output.title) {
+		// Only rewrite title if it contains a mount path reference
+		if (output.title && containsMountPath(output.title, mountPath)) {
 			const rewritten = rewritePathsInOutput(output.title, mountPath, projectPath, client)
 			if (rewritten !== output.title) {
 				output.title = rewritten
 			}
 		}
 
-		// Rewrite filepath in metadata if present
+		// Only rewrite filepath in metadata if it contains a mount path reference
 		if (hasStringField(output.metadata, "filepath")) {
 			const filepath = output.metadata.filepath
-			const rewritten = rewritePathsInOutput(filepath, mountPath, projectPath, client)
-			if (rewritten !== filepath) {
-				log(client, "info", `Rewriting metadata.filepath`, {
-					from: filepath,
-					to: rewritten,
-				})
-				output.metadata.filepath = rewritten
+			if (containsMountPath(filepath, mountPath)) {
+				const rewritten = rewritePathsInOutput(filepath, mountPath, projectPath, client)
+				if (rewritten !== filepath) {
+					log(client, "info", `Rewriting metadata.filepath`, {
+						from: filepath,
+						to: rewritten,
+					})
+					output.metadata.filepath = rewritten
+				}
 			}
 		}
 	}
@@ -367,4 +388,5 @@ export {
 	rewritePathsInOutput,
 	extractAgentFSPattern,
 	hasStringField,
+	containsMountPath,
 }
