@@ -290,6 +290,20 @@ export function createPathRewriteHandler(config: AgentFSConfig, client?: Logging
 
 		for (const field of pathFields) {
 			const value = output.args[field]
+
+			// For glob/grep: if path is not provided, inject the mount path
+			// Otherwise the tool defaults to Instance.directory (project path)
+			if ((toolLower === "glob" || toolLower === "grep") && field === "path") {
+				if (value === undefined || value === null || value === "") {
+					log(client, "info", `Injecting mount path for ${input.tool}`, {
+						tool: input.tool,
+						mountPath,
+					})
+					output.args[field] = mountPath
+					continue
+				}
+			}
+
 			if (typeof value !== "string") {
 				log(client, "debug", `Path rewrite: field ${field} is not a string`, { value })
 				continue
